@@ -7,6 +7,9 @@ const MAX_ANSWERS = 100;
 const MAX_QUESTION = 2_000;
 const MAX_ANSWER = 20_000;
 const MAX_URL = 2_048;
+const MAX_MESSAGE_CHARS = 16_000_000;
+// Stays well under the 2 MB limit on one Durable Object SQLite row.
+const MAX_ANSWERS_CHARS = 500_000;
 
 function shortText(value: unknown, max: number): string | null {
   if (typeof value !== "string") return null;
@@ -43,6 +46,7 @@ function parsePnm(value: unknown): PnmInput | null {
     if (qa === null) return null;
     cleanAnswers.push(qa);
   }
+  if (JSON.stringify(cleanAnswers).length > MAX_ANSWERS_CHARS) return null;
   return { name: cleanName, photoUrl: cleanPhoto, answers: cleanAnswers };
 }
 
@@ -64,7 +68,7 @@ function parseJoin(fields: Record<string, unknown>): ClientMessage | null {
 }
 
 export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | null {
-  if (typeof raw !== "string") return null;
+  if (typeof raw !== "string" || raw.length > MAX_MESSAGE_CHARS) return null;
   let fields: unknown;
   try {
     fields = JSON.parse(raw);
@@ -102,6 +106,8 @@ export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | n
       const pnmId = shortText(message.pnmId, MAX_ID);
       return pnmId === null ? null : { type: "reveal", pnmId };
     }
+    case "setJoinLocked":
+      return typeof message.locked === "boolean" ? { type: "setJoinLocked", locked: message.locked } : null;
     case "kick": {
       const handle = shortText(message.handle, MAX_ID);
       return handle === null ? null : { type: "kick", handle };

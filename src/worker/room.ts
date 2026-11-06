@@ -23,6 +23,13 @@ import {
 import { migrate } from "./schema";
 import { parseClientMessage } from "./validate";
 
+const ROOM_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_MEMBERS = 1_000;
+// Joins and votes arrive in bursts, and each update reaches every socket, so they go out together.
+const ROOM_UPDATE_MS = 200;
+const SOCKET_WINDOW_MS = 10_000;
+const SOCKET_WINDOW_MESSAGES = 60;
+
 // Identity rides on the socket so it survives hibernation. Unjoined sockets have no attachment.
 interface Attachment {
   role: Role;
@@ -40,6 +47,7 @@ type RoomRow = {
   revealed_no: number | null;
   revote_spots: number | null;
   class_revealed: number;
+  join_locked: number;
   phase: Phase;
 };
 
@@ -108,11 +116,18 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 export class VotingRoom extends DurableObject<Env> {
   private readonly sql: SqlStorage;
+  private readonly socketUse = new WeakMap<WebSocket, { windowStart: number; messages: number }>();
+  private roomUpdate: ReturnType<typeof setTimeout> | null = null;
+  private membersChanged = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
-    ctx.blockConcurrencyWhile(async () => migrate(this.sql));
+    ctx.blockConcurrencyWhile(async () => {
+      migrate(this.sql);
+      // Rooms from before retention existed have no expiry yet.
+      if (this.roomOrNull() && (await ctx.storage.getAlarm()) === null) this.keepAlive();
+    });
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
@@ -125,7 +140,15 @@ export class VotingRoom extends DurableObject<Env> {
       projectorKey,
       Date.now(),
     );
+    this.keepAlive();
     return true;
+  }
+
+  // PNM answers and photos are personal data, so a room is erased after a month without use.
+  async alarm(): Promise<void> {
+    for (const socket of this.ctx.getWebSockets()) socket.close(1000, "room expired");
+    await this.ctx.storage.deleteAll();
+    migrate(this.sql);
   }
 
   async exists(): Promise<boolean> {
@@ -144,6 +167,7 @@ export class VotingRoom extends DurableObject<Env> {
   }
 
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
+    if (this.overSocketLimit(ws)) return;
     const message = parseClientMessage(raw);
     if (message === null) {
       this.send(ws, { type: "error", code: "bad_message", message: "Message not understood." });
@@ -152,7 +176,11 @@ export class VotingRoom extends DurableObject<Env> {
     try {
       this.dispatch(ws, message);
     } catch (error) {
-      if (!(error instanceof Refusal)) throw error;
+      if (!(error instanceof Refusal)) {
+        console.error("Room message failed", message.type, error);
+        this.send(ws, { type: "error", code: "server_error", message: "Something went wrong. Try that again." });
+        return;
+      }
       this.send(ws, { type: "error", code: error.code, message: error.message });
       if (error.code === "kicked") ws.close(CLOSE_KICKED, "removed");
     }
@@ -167,9 +195,30 @@ export class VotingRoom extends DurableObject<Env> {
     }
   }
 
+  // Only counts in memory, so a window restarts if the room hibernates. Bursts that long never hibernate.
+  private overSocketLimit(ws: WebSocket): boolean {
+    const now = Date.now();
+    const use = this.socketUse.get(ws);
+    if (!use || now - use.windowStart >= SOCKET_WINDOW_MS) {
+      this.socketUse.set(ws, { windowStart: now, messages: 1 });
+      return false;
+    }
+    use.messages++;
+    if (use.messages <= SOCKET_WINDOW_MESSAGES) return false;
+    if (use.messages === SOCKET_WINDOW_MESSAGES + 1) {
+      this.send(ws, { type: "error", code: "rate_limited", message: "Too many requests. Wait a few seconds." });
+    }
+    return true;
+  }
+
+  private keepAlive() {
+    void this.ctx.storage.setAlarm(Date.now() + ROOM_TTL_MS);
+  }
+
   private dispatch(ws: WebSocket, message: ClientMessage) {
     if (message.type === "join") {
       if (this.attachment(ws)) throw new Refusal("already_joined", "Already joined.");
+      this.keepAlive();
       if (message.as === "brother") this.joinBrother(ws, message.memberId, message.name);
       else if (message.as === "host") this.joinHost(ws, message.hostKey);
       else this.joinProjector(ws, message.projectorKey);
@@ -186,6 +235,7 @@ export class VotingRoom extends DurableObject<Env> {
     }
 
     if (self.role !== "host") throw new Refusal("forbidden", "Only the host can do that.");
+    this.keepAlive();
     switch (message.type) {
       case "importPnms":
         return this.importPnms(message.pnms);
@@ -195,6 +245,8 @@ export class VotingRoom extends DurableObject<Env> {
         return this.setFocus(message.pnmId);
       case "reveal":
         return this.reveal(message.pnmId);
+      case "setJoinLocked":
+        return this.setJoinLocked(message.locked);
       case "kick":
         return this.kick(message.handle);
       case "endSession":
@@ -234,6 +286,12 @@ export class VotingRoom extends DurableObject<Env> {
     if (!existing && this.room().phase === "ended") {
       throw new Refusal("session_ended", "Voting has ended for this room.");
     }
+    if (!existing && this.room().join_locked) {
+      throw new Refusal("room_locked", "The host has closed this room to new names.");
+    }
+    if (!existing && this.members().length >= MAX_MEMBERS) {
+      throw new Refusal("room_full", "This room is full.");
+    }
 
     if (!existing) {
       this.sql.exec(
@@ -249,11 +307,7 @@ export class VotingRoom extends DurableObject<Env> {
 
     this.attach(ws, { role: "brother", memberId });
 
-    if (existing?.name !== name) {
-      this.broadcast({ type: "members", members: this.members() }, ws);
-      const { focus_pnm_id } = this.room();
-      if (focus_pnm_id) this.broadcast({ type: "progress", ...this.progress(focus_pnm_id) });
-    }
+    if (existing?.name !== name) this.queueRoomUpdate(true);
   }
 
   private vote(memberId: string, pnmId: string, value: VoteValue | null) {
@@ -297,7 +351,7 @@ export class VotingRoom extends DurableObject<Env> {
     for (const socket of this.ctx.getWebSockets()) {
       if (this.attachment(socket)?.memberId === memberId) this.send(socket, myVote);
     }
-    this.broadcast({ type: "progress", ...this.progress(pnmId) });
+    this.queueRoomUpdate(false);
     const tally = this.tallies()[pnmId] ?? { yes: 0, no: 0 };
     this.sendToHosts({ type: "tally", pnmId, ...tally });
   }
@@ -306,16 +360,18 @@ export class VotingRoom extends DurableObject<Env> {
     if (this.room().phase !== "setup") {
       throw new Refusal("wrong_phase", "PNMs cannot be replaced after voting has started.");
     }
-    this.sql.exec("DELETE FROM pnm");
-    pnms.forEach((pnm, index) => {
-      this.sql.exec(
-        "INSERT INTO pnm (id, ordinal, name, photo_url, answers) VALUES (?, ?, ?, ?, ?)",
-        crypto.randomUUID(),
-        index + 1,
-        pnm.name,
-        pnm.photoUrl,
-        JSON.stringify(pnm.answers),
-      );
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM pnm");
+      pnms.forEach((pnm, index) => {
+        this.sql.exec(
+          "INSERT INTO pnm (id, ordinal, name, photo_url, answers) VALUES (?, ?, ?, ?, ?)",
+          crypto.randomUUID(),
+          index + 1,
+          pnm.name,
+          pnm.photoUrl,
+          JSON.stringify(pnm.answers),
+        );
+      });
     });
     this.broadcastSnapshots();
   }
@@ -380,9 +436,26 @@ export class VotingRoom extends DurableObject<Env> {
         socket.close(CLOSE_KICKED, "removed");
       }
     }
-    this.broadcast({ type: "members", members: this.members() });
-    const { focus_pnm_id } = this.room();
-    if (focus_pnm_id) this.broadcast({ type: "progress", ...this.progress(focus_pnm_id) });
+    this.queueRoomUpdate(true);
+  }
+
+  private setJoinLocked(locked: boolean) {
+    this.sql.exec("UPDATE room SET join_locked = ?", locked ? 1 : 0);
+    this.broadcast({ type: "joinLock", locked });
+  }
+
+  private queueRoomUpdate(membersChanged: boolean) {
+    this.membersChanged ||= membersChanged;
+    this.roomUpdate ??= setTimeout(() => this.flushRoomUpdate(), ROOM_UPDATE_MS);
+  }
+
+  private flushRoomUpdate() {
+    this.roomUpdate = null;
+    const room = this.roomOrNull();
+    if (!room) return;
+    if (this.membersChanged) this.broadcast({ type: "members", members: this.members() });
+    this.membersChanged = false;
+    if (room.focus_pnm_id) this.broadcast({ type: "progress", ...this.progress(room.focus_pnm_id) });
   }
 
   private endSession() {
@@ -403,17 +476,19 @@ export class VotingRoom extends DurableObject<Env> {
     if (!tie) throw new Refusal("no_tie", "No tie to break.");
 
     const tallies = this.tallies();
-    for (const pnmId of tie.pnmIds) {
-      const { past_rounds } = this.sql.exec<{ past_rounds: string }>("SELECT past_rounds FROM pnm WHERE id = ?", pnmId).one();
-      const rounds = [...(JSON.parse(past_rounds) as Tally[]), tallies[pnmId] ?? { yes: 0, no: 0 }];
-      this.sql.exec("UPDATE pnm SET in_revote = 1, past_rounds = ? WHERE id = ?", JSON.stringify(rounds), pnmId);
-      this.sql.exec("DELETE FROM vote WHERE pnm_id = ?", pnmId);
-    }
-    this.sql.exec(
-      "UPDATE room SET phase = 'live', focus_pnm_id = ?, revealed_pnm_id = NULL, revealed_yes = NULL, revealed_no = NULL, revote_spots = ?",
-      tie.pnmIds[0]!,
-      tie.spots,
-    );
+    this.ctx.storage.transactionSync(() => {
+      for (const pnmId of tie.pnmIds) {
+        const { past_rounds } = this.sql.exec<{ past_rounds: string }>("SELECT past_rounds FROM pnm WHERE id = ?", pnmId).one();
+        const rounds = [...(JSON.parse(past_rounds) as Tally[]), tallies[pnmId] ?? { yes: 0, no: 0 }];
+        this.sql.exec("UPDATE pnm SET in_revote = 1, past_rounds = ? WHERE id = ?", JSON.stringify(rounds), pnmId);
+        this.sql.exec("DELETE FROM vote WHERE pnm_id = ?", pnmId);
+      }
+      this.sql.exec(
+        "UPDATE room SET phase = 'live', focus_pnm_id = ?, revealed_pnm_id = NULL, revealed_yes = NULL, revealed_no = NULL, revote_spots = ?",
+        tie.pnmIds[0]!,
+        tie.spots,
+      );
+    });
     this.broadcastSnapshots();
   }
 
@@ -563,6 +638,7 @@ export class VotingRoom extends DurableObject<Env> {
       yesBudget: this.voteBudget(),
       budgetIsDefault: room.yes_budget === 0 || room.revote_spots !== null,
       pnmCount: this.pnmCount(),
+      joinLocked: room.join_locked === 1,
       focusPnmId: room.focus_pnm_id,
       pnms,
       members: this.members(),

@@ -84,4 +84,11 @@ export function migrate(sql: SqlStorage) {
       INSERT INTO _sql_schema_migrations (id) VALUES (5);
     `);
   }
+
+  if (version < 6) {
+    sql.exec(`
+      ALTER TABLE room ADD COLUMN join_locked INTEGER NOT NULL DEFAULT 0;
+      INSERT INTO _sql_schema_migrations (id) VALUES (6);
+    `);
+  }
 }
