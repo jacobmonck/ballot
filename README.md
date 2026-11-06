@@ -53,6 +53,9 @@ bunx wrangler login
 bun run deploy
 ```
 
+Pushing to `master` also deploys automatically, once tests and typecheck pass. GitHub
+needs a `CLOUDFLARE_API_TOKEN` secret and a `CLOUDFLARE_ACCOUNT_ID` variable.
+
 ## Voting night
 
 1. On a laptop, choose **Start a new room**.
