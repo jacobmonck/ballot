@@ -20,6 +20,10 @@ export function Join() {
     setBusy(true);
     try {
       const response = await fetch(`/api/rooms/${encodeURIComponent(code)}`);
+      if (response.status === 429) {
+        setError("Too many tries. Wait a minute and try again.");
+        return;
+      }
       if (!response.ok) {
         setError(`No room has the code ${code}. Check the code on the screen.`);
         return;
@@ -38,6 +42,10 @@ export function Join() {
     setBusy(true);
     try {
       const response = await fetch("/api/rooms", { method: "POST" });
+      if (response.status === 429) {
+        setError("Too many new rooms from this network. Wait a minute and try again.");
+        return;
+      }
       if (!response.ok) throw new Error(String(response.status));
       const room = (await response.json()) as { code: string; hostKey: string };
       saveHostKey(room.code, room.hostKey);

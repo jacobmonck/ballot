@@ -13,5 +13,9 @@
     "bindings": [{ "name": "ROOM", "class_name": "VotingRoom" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["VotingRoom"] }],
+  "ratelimits": [
+    { "name": "ROOM_CREATION_LIMIT", "namespace_id": "4101", "simple": { "limit": 10, "period": 60 } },
+    { "name": "ROOM_ACCESS_LIMIT", "namespace_id": "4102", "simple": { "limit": 1200, "period": 60 } }
+  ],
   "observability": { "enabled": true }
 }

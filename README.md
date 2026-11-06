@@ -57,6 +57,18 @@ Pushing to `master` also deploys automatically, once tests and typecheck pass. G
 needs a `CLOUDFLARE_API_TOKEN` secret in its `production` environment, which only allows
 `master`, and a `CLOUDFLARE_ACCOUNT_ID` repository variable.
 
+Pull requests run the same checks without deploying. To roll back, run
+`bunx wrangler rollback` or revert the commit on `master`.
+
+## Limits and data
+
+- Rooms and all their data are erased after 30 days without use. Download the CSV first.
+- A room holds up to 1,000 brothers and 500 PNMs.
+- Each address can start 10 rooms a minute and make 1,200 room requests a minute.
+- One device can send 60 messages every 10 seconds.
+- Anyone with the room code can join under any name. Check the list, then choose
+  **Close to new names** before voting starts. Brothers already in the room can still return.
+
 ## Voting night
 
 1. On a laptop, choose **Start a new room**.

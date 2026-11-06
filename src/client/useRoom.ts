@@ -13,7 +13,8 @@ const PONG_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 8_000;
 const MAX_BACKOFF_MS = 8_000;
 const VOTE_REJECTIONS: ErrorCode[] = ["budget_exhausted", "not_seen", "not_in_revote", "session_ended"];
-const JOIN_REFUSALS: ErrorCode[] = ["bad_host_key", "bad_projector_key", "kicked", "session_ended"];
+const JOIN_REFUSALS: ErrorCode[] = ["bad_host_key", "bad_projector_key", "kicked", "session_ended", "room_full", "room_locked"];
+const ROOM_CHECK_AFTER_ATTEMPTS = 3;
 
 export type Connection = "connecting" | "open" | "reconnecting" | "refused";
 
@@ -42,6 +43,8 @@ function applyToRoom(room: Snapshot, message: ServerMessage): Snapshot {
     }
     case "members":
       return { ...room, members: message.members };
+    case "joinLock":
+      return { ...room, joinLocked: message.locked };
     case "budget":
       return { ...room, yesBudget: message.yesBudget, budgetIsDefault: message.budgetIsDefault };
     case "progress":
@@ -138,9 +141,23 @@ export function useRoom(code: string, join: ClientMessage | null) {
       clearTimeout(joinTimer);
     };
 
+    // An expired room refuses the socket with nothing to read, so ask directly before retrying forever.
+    const checkRoomExists = async () => {
+      try {
+        const response = await fetch(`/api/rooms/${code}`);
+        if (response.status !== 404 || stopped) return;
+        stopped = true;
+        clearTimeout(reconnectTimer);
+        dispatch({ kind: "refused", message: "This room no longer exists." });
+      } catch {
+        // Offline, so keep retrying.
+      }
+    };
+
     const scheduleReconnect = () => {
       const backoff = Math.min(500 * 2 ** attempt, MAX_BACKOFF_MS);
       attempt++;
+      if (attempt === ROOM_CHECK_AFTER_ATTEMPTS) void checkRoomExists();
       // Jitter so a wifi blip doesn't bring every phone back at the same instant.
       reconnectTimer = setTimeout(connect, backoff * (0.5 + Math.random()));
     };

@@ -23,9 +23,12 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      - run: bun audit
       - run: bun run typecheck
       - run: bun run test
       - run: bun run deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Check the live site
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 3 --retry-all-errors --output /dev/null https://ballot.monck.dev/

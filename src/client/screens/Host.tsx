@@ -292,7 +292,20 @@ function Sidebar({ room, send }: { room: Snapshot; send: Send }) {
 function Members({ room, send }: { room: Snapshot; send: Send }) {
   return (
     <section className="panel mt-5 p-5">
-      <h2 className="type-headline mb-3">{room.members.length} in the room</h2>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="type-headline">{room.members.length} in the room</h2>
+        <button
+          type="button"
+          className="btn btn-sm btn-secondary"
+          aria-pressed={room.joinLocked}
+          onClick={() => send({ type: "setJoinLocked", locked: !room.joinLocked })}
+        >
+          {room.joinLocked ? "Open to new names" : "Close to new names"}
+        </button>
+      </div>
+      {room.joinLocked && (
+        <p className="type-caption mb-3 text-brass">Closed. Brothers already here can still come back.</p>
+      )}
       {room.members.length === 0 ? (
         <p className="text-chalk">Names appear here as brothers join.</p>
       ) : (

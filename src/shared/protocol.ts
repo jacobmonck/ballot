@@ -80,6 +80,7 @@ export type ClientMessage =
   | { type: "setBudget"; yesBudget: number | null }
   | { type: "setFocus"; pnmId: string }
   | { type: "reveal"; pnmId: string }
+  | { type: "setJoinLocked"; locked: boolean }
   | { type: "kick"; handle: string }
   | { type: "endSession" }
   | { type: "startRevote" }
@@ -93,6 +94,8 @@ export interface Snapshot {
   yesBudget: number;
   budgetIsDefault: boolean;
   pnmCount: number;
+  // New names are refused while set. Brothers already in the room can still return.
+  joinLocked: boolean;
   focusPnmId: string | null;
   // Brothers and projectors only receive PNMs the host has already focused.
   pnms: Pnm[];
@@ -113,6 +116,7 @@ export type ServerMessage =
   | Snapshot
   | { type: "focus"; pnm: Pnm; progress: Progress }
   | { type: "members"; members: MemberInfo[] }
+  | { type: "joinLock"; locked: boolean }
   | { type: "budget"; yesBudget: number; budgetIsDefault: boolean }
   | ({ type: "progress" } & Progress)
   | ({ type: "tally"; pnmId: string } & Tally)
@@ -138,7 +142,11 @@ export type ErrorCode =
   | "tie_unresolved"
   | "not_found"
   | "wrong_phase"
-  | "budget_too_low";
+  | "budget_too_low"
+  | "room_full"
+  | "room_locked"
+  | "rate_limited"
+  | "server_error";
 
 // Close code for a removed member; clients must not auto-reconnect after it.
 export const CLOSE_KICKED = 4001;

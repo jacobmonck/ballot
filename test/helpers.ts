@@ -128,6 +128,14 @@ export async function focus(host: Client, brothers: Client[], pnmId: string) {
 }
 
 // Round-trips through the room so anything sent before this call has been delivered.
+// Joins go out in batches, so wait for the update that has everyone.
+export async function membersUntil(client: Client, count: number) {
+  for (;;) {
+    const { members } = await client.next("members");
+    if (members.length >= count) return members;
+  }
+}
+
 export async function settle(client: Client) {
   client.send({ type: "vote", pnmId: "__settle__", value: null });
   for (;;) {

@@ -1,8 +1,8 @@
-import { SELF, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { SELF, env, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { VotingRoom } from "../src/worker/room";
 import { CLOSE_KICKED } from "../src/shared/protocol";
-import { connect, createRoom, fakePnms, focus, joinBrother, joinHost, projectorKey, seededRoom, settle } from "./helpers";
+import { connect, createRoom, fakePnms, focus, joinBrother, joinHost, membersUntil, projectorKey, seededRoom, settle } from "./helpers";
 
 describe("rooms", () => {
   it("creates a room with a valid code and unique host key", async () => {
@@ -60,8 +60,8 @@ describe("lobby", () => {
     const { client: first } = await joinBrother(code, "Jacob");
     expect((await host.next("members")).members.map((m) => m.name)).toEqual(["Jacob"]);
     await joinBrother(code, "Mike");
-    expect((await first.next("members")).members.map((m) => m.name)).toEqual(["Jacob", "Mike"]);
-    expect((await host.next("members")).members.map((m) => m.name)).toEqual(["Jacob", "Mike"]);
+    expect((await membersUntil(first, 2)).map((m) => m.name)).toEqual(["Jacob", "Mike"]);
+    expect((await membersUntil(host, 2)).map((m) => m.name)).toEqual(["Jacob", "Mike"]);
   });
 
   it("never exposes one member's rejoin secret to another", async () => {
@@ -191,7 +191,7 @@ describe("host controls", () => {
     const { code, hostKey, host, ids } = await seededRoom(2);
     const { client: kept } = await joinBrother(code, "Kept");
     const { client: target } = await joinBrother(code, "Target");
-    const { members } = await host.next("members").then(() => host.next("members"));
+    const members = await membersUntil(host, 2);
     for (const id of ids) await focus(host, [kept, target], id);
     target.send({ type: "vote", pnmId: ids[0]!, value: "yes" });
     await target.next("myVote");
@@ -760,5 +760,116 @@ describe("results", () => {
     await host.next("ended");
     const { snapshot } = await joinHost(code, hostKey);
     expect(snapshot.hostOnly?.results?.rows).toHaveLength(1);
+  });
+});
+
+describe("abuse limits", () => {
+  it("limits new rooms per client address, and marks API responses uncacheable", async () => {
+    const create = () =>
+      SELF.fetch("https://voting.test/api/rooms", { method: "POST", headers: { "CF-Connecting-IP": "198.51.100.7" } });
+    const first = await create();
+    expect(first.status).toBe(201);
+    expect(first.headers.get("Cache-Control")).toBe("no-store");
+    const statuses = [];
+    for (let attempt = 0; attempt < 12; attempt++) statuses.push((await create()).status);
+    expect(statuses).toContain(429);
+  });
+
+  it("closes a room to new names but lets existing brothers return", async () => {
+    const { code, host } = await seededRoom(1);
+    const { memberId } = await joinBrother(code, "Jacob");
+    host.send({ type: "setJoinLocked", locked: true });
+    expect((await host.next("joinLock")).locked).toBe(true);
+
+    const stranger = await connect(code);
+    stranger.send({ type: "join", as: "brother", memberId: crypto.randomUUID(), name: "Stranger" });
+    expect((await stranger.next("error")).code).toBe("room_locked");
+
+    const { snapshot } = await joinBrother(code, "Jacob", memberId);
+    expect(snapshot.joinLocked).toBe(true);
+    expect(snapshot.members.map(({ name }) => name)).toEqual(["Jacob"]);
+  });
+
+  it("only lets the host close a room to new names", async () => {
+    const { code } = await seededRoom(1);
+    const { client } = await joinBrother(code, "Jacob");
+    client.send({ type: "setJoinLocked", locked: true });
+    expect((await client.next("error")).code).toBe("forbidden");
+  });
+
+  it("refuses new names once a room is full", async () => {
+    const { code } = await seededRoom(1);
+    await runInDurableObject(env.ROOM.getByName(code), (_, state) => {
+      for (let index = 0; index < 1_000; index++) {
+        state.storage.sql.exec(
+          "INSERT INTO member (id, handle, name, joined_at) VALUES (?, ?, ?, 0)",
+          `member-${index}`,
+          `handle-${index}`,
+          `Member ${index}`,
+        );
+      }
+    });
+    const late = await connect(code);
+    late.send({ type: "join", as: "brother", memberId: crypto.randomUUID(), name: "Late" });
+    expect((await late.next("error")).code).toBe("room_full");
+  });
+
+  it("stops one socket from flooding the room", async () => {
+    const { code } = await seededRoom(1);
+    const { client } = await joinBrother(code, "Jacob");
+    for (let index = 0; index < 70; index++) client.send({ type: "vote", pnmId: "__flood__", value: null });
+    const codes = [];
+    for (;;) {
+      const { code: errorCode } = await client.next("error");
+      codes.push(errorCode);
+      if (errorCode === "rate_limited") break;
+    }
+    expect(codes).toHaveLength(60);
+  });
+
+  it("refuses a PNM whose answers are too large to store", async () => {
+    const { code, hostKey } = await createRoom();
+    const { client: host } = await joinHost(code, hostKey);
+    const answers = Array.from({ length: 100 }, (_, index) => ({ q: `Question ${index}`, a: "x".repeat(10_000) }));
+    host.send({ type: "importPnms", pnms: [{ name: "Too much", photoUrl: null, answers }] });
+    expect((await host.next("error")).code).toBe("bad_message");
+  });
+
+  it("sends a burst of joins to everyone as a few updates", async () => {
+    const { code, host } = await seededRoom(1);
+    await Promise.all(Array.from({ length: 8 }, (_, index) => joinBrother(code, `Brother ${index}`)));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(host.received.filter(({ type }) => type === "members").length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("retention", () => {
+  it("sets a room to expire a month after its last use", async () => {
+    const { code, host } = await seededRoom(1);
+    const stub = env.ROOM.getByName(code);
+    const expiry = () => runInDurableObject(stub, (_, state) => state.storage.getAlarm());
+    const first = await expiry();
+    expect(first).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    host.send({ type: "setBudget", yesBudget: 1 });
+    await host.next("budget");
+    expect(await expiry()).toBeGreaterThan(first!);
+  });
+
+  it("erases everything when a room expires, and can reuse the code", async () => {
+    const { code, host } = await seededRoom(1);
+    const stub = env.ROOM.getByName(code);
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await host.closed();
+
+    expect(await stub.exists()).toBe(false);
+    const response = await SELF.fetch(`https://voting.test/api/rooms/${code}`);
+    expect(response.status).toBe(404);
+    const count = await runInDurableObject(stub, (_, state) => {
+      return state.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM pnm").one().count;
+    });
+    expect(count).toBe(0);
+    expect(await stub.claim(code, "new-host", "new-projector")).toBe(true);
   });
 });
