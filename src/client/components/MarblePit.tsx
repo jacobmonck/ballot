@@ -7,7 +7,9 @@ const PILE_SHARE_OF_SCREEN = 0.1;
 const MIN_RADIUS_OF_WIDTH = 0.006;
 const MAX_RADIUS_OF_WIDTH = 0.015;
 const MAX_DPR = 2;
-const SPRITE_SIZE = 96;
+const SPRITE_SIZE = 128;
+const SHADOW_SCALE = 1.3;
+const SHADOW_DROP = 0.22;
 const MAX_FRAME_S = 1 / 30;
 const QUIET_FRAMES_BEFORE_SLEEP = 30;
 
@@ -17,28 +19,115 @@ function radiusFor(capacity: number) {
   return Math.min(width * MAX_RADIUS_OF_WIDTH, Math.max(width * MIN_RADIUS_OF_WIDTH, fit));
 }
 
-const GOLD = ["#fff3cf", "#e3c16f", "#8f6f26"] as const;
-const WHITE = ["#ffffff", "#f5f1e6", "#b9b2a0"] as const;
-const BLACK = ["#6a6f66", "#23261f", "#060705"] as const;
+interface Finish {
+  body: readonly [light: string, mid: string, dark: string];
+  // Darkens the edge so the disc reads as a sphere.
+  edge: string;
+  // Light thrown back up from the pile onto the lower right.
+  bounce: string;
+  gloss: string;
+  outline?: string;
+}
 
-function createSprite(colors: readonly [string, string, string], rim?: string) {
+const GOLD: Finish = {
+  body: ["#fff0bf", "#dcb456", "#7c5a18"],
+  edge: "rgb(58 36 6 / 0.75)",
+  bounce: "rgb(255 208 120 / 0.55)",
+  gloss: "rgb(255 252 236 / 0.95)",
+};
+const WHITE: Finish = {
+  body: ["#ffffff", "#efe9da", "#a9a18c"],
+  edge: "rgb(84 74 52 / 0.55)",
+  bounce: "rgb(255 246 222 / 0.7)",
+  gloss: "rgb(255 255 255 / 1)",
+};
+const BLACK: Finish = {
+  body: ["#4d5249", "#191c17", "#050604"],
+  edge: "rgb(0 0 0 / 0.8)",
+  bounce: "rgb(150 158 142 / 0.4)",
+  gloss: "rgb(244 246 238 / 0.9)",
+  outline: "rgb(245 241 230 / 0.32)",
+};
+
+function radial(context: CanvasRenderingContext2D, x: number, y: number, from: number, to: number, stops: [number, string][]) {
+  const gradient = context.createRadialGradient(x, y, from, x, y, to);
+  for (const [offset, color] of stops) gradient.addColorStop(offset, color);
+  return gradient;
+}
+
+function createSprite({ body, edge, bounce, gloss, outline }: Finish) {
   const sprite = document.createElement("canvas");
   sprite.width = sprite.height = SPRITE_SIZE;
   const context = sprite.getContext("2d")!;
   const center = SPRITE_SIZE / 2;
-  const gradient = context.createRadialGradient(center * 0.68, center * 0.56, 0, center, center, center);
-  gradient.addColorStop(0, colors[0]);
-  gradient.addColorStop(0.46, colors[1]);
-  gradient.addColorStop(1, colors[2]);
-  context.fillStyle = gradient;
+  const radius = center - 1.5;
+  const size = SPRITE_SIZE;
+
   context.beginPath();
-  context.arc(center, center, center - 2, 0, Math.PI * 2);
-  context.fill();
-  if (rim) {
-    context.strokeStyle = rim;
-    context.lineWidth = 2;
+  context.arc(center, center, radius, 0, Math.PI * 2);
+  context.save();
+  context.clip();
+
+  // Lit from the upper left, to match the highlight below.
+  const lit = context.createRadialGradient(center * 0.7, center * 0.58, 0, center, center, radius * 1.08);
+  lit.addColorStop(0, body[0]);
+  lit.addColorStop(0.42, body[1]);
+  lit.addColorStop(1, body[2]);
+  context.fillStyle = lit;
+  context.fillRect(0, 0, size, size);
+
+  context.fillStyle = radial(context, center, center, radius * 0.6, radius, [
+    [0, "rgb(0 0 0 / 0)"],
+    [1, edge],
+  ]);
+  context.fillRect(0, 0, size, size);
+
+  context.fillStyle = radial(context, center * 1.34, center * 1.46, 0, radius * 0.62, [
+    [0, bounce],
+    [1, "rgb(0 0 0 / 0)"],
+  ]);
+  context.fillRect(0, 0, size, size);
+
+  // A soft window of light with a tight hot spot inside it.
+  context.translate(center * 0.68, center * 0.56);
+  context.rotate(-Math.PI / 5);
+  context.scale(1, 0.62);
+  context.fillStyle = radial(context, 0, 0, 0, radius * 0.42, [
+    [0, gloss],
+    [0.35, gloss],
+    [1, "rgb(255 255 255 / 0)"],
+  ]);
+  context.globalAlpha = 0.6;
+  context.fillRect(-size, -size, size * 2, size * 2);
+  context.globalAlpha = 1;
+  context.fillStyle = radial(context, 0, 0, 0, radius * 0.16, [
+    [0, gloss],
+    [0.6, gloss],
+    [1, "rgb(255 255 255 / 0)"],
+  ]);
+  context.fillRect(-size, -size, size * 2, size * 2);
+  context.restore();
+
+  if (outline) {
+    context.beginPath();
+    context.arc(center, center, radius - 0.5, 0, Math.PI * 2);
+    context.strokeStyle = outline;
+    context.lineWidth = 1.5;
     context.stroke();
   }
+  return sprite;
+}
+
+function createShadow() {
+  const sprite = document.createElement("canvas");
+  sprite.width = sprite.height = SPRITE_SIZE;
+  const context = sprite.getContext("2d")!;
+  const center = SPRITE_SIZE / 2;
+  context.fillStyle = radial(context, center, center, center * 0.45, center, [
+    [0, "rgb(0 0 0 / 0.5)"],
+    [1, "rgb(0 0 0 / 0)"],
+  ]);
+  context.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
   return sprite;
 }
 
@@ -68,7 +157,8 @@ export function MarblePit({
     if (!element) return;
     const context = element.getContext("2d")!;
     const gold = createSprite(GOLD);
-    const sideSprite = { yes: createSprite(WHITE), no: createSprite(BLACK, "rgb(245 241 230 / 0.45)") };
+    const sideSprite = { yes: createSprite(WHITE), no: createSprite(BLACK) };
+    const shadow = createShadow();
     const simulation = new MarblePile();
     pile.current = simulation;
 
@@ -88,6 +178,12 @@ export function MarblePit({
     const draw = () => {
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      // Shadows go down first so they settle into the gaps of the pile, not over its marbles.
+      for (const { x, y, radius, alpha } of simulation.marbles) {
+        const reach = radius * SHADOW_SCALE;
+        context.globalAlpha = Math.max(0, alpha);
+        context.drawImage(shadow, x - reach, y - reach + radius * SHADOW_DROP, reach * 2, reach * 2);
+      }
       for (const { x, y, radius, alpha, side, flip } of simulation.marbles) {
         const opacity = Math.max(0, alpha);
         context.globalAlpha = opacity;
