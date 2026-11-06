@@ -1,10 +1,13 @@
 import { ROOM_CODE_PATTERN } from "../shared/protocol";
 import { generateKey, generateRoomCode } from "./code";
+import { importPhoto, PHOTO_PATH_PREFIX, servePhoto } from "./photos";
 
 export { VotingRoom } from "./room";
 
 const MAX_CODE_ATTEMPTS = 8;
 const ROOM_ROUTE = /^\/api\/rooms\/([^/]+)(\/ws)?$/;
+const PHOTO_IMPORT_ROUTE = /^\/api\/rooms\/([^/]+)\/photos\/([0-9a-f-]{36})$/;
+const STORED_PHOTO_ROUTE = /^\/photos\/([2-9A-HJKMNP-TV-Z]{6}\/[0-9a-f-]{36})$/;
 const API_HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 
 function json(body: unknown, status = 200): Response {
@@ -29,9 +32,31 @@ async function createRoom(env: Env): Promise<Response> {
   return json({ error: "Could not allocate a room code." }, 503);
 }
 
+async function handlePhotoImport(request: Request, env: Env, rawCode: string, pnmId: string): Promise<Response> {
+  const code = rawCode.toUpperCase();
+  if (!ROOM_CODE_PATTERN.test(code)) return json({ error: "Invalid room code." }, 400);
+  if (await overLimit(env.ROOM_ACCESS_LIMIT, request)) return json({ error: "Too many requests." }, 429);
+
+  const hostKey = request.headers.get("Authorization")?.replace(/^Bearer /, "") ?? "";
+  const result = await importPhoto(env, env.ROOM.getByName(code), code, hostKey, pnmId);
+  if (result === "forbidden") return json({ error: "Host key required." }, 403);
+  if (result === "missing") return json({ error: "No Drive photo to save." }, 404);
+  return json(result, result.status === "saved" ? 200 : 422);
+}
+
 export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
+
+    if (request.method === "GET" && pathname.startsWith(PHOTO_PATH_PREFIX)) {
+      const key = STORED_PHOTO_ROUTE.exec(pathname)?.[1];
+      return key ? servePhoto(env, key) : new Response("Not found", { status: 404 });
+    }
+
+    const photoImport = PHOTO_IMPORT_ROUTE.exec(pathname);
+    if (photoImport && request.method === "POST") {
+      return handlePhotoImport(request, env, photoImport[1]!, photoImport[2]!);
+    }
 
     if (pathname === "/api/rooms" && request.method === "POST") {
       if (await overLimit(env.ROOM_CREATION_LIMIT, request)) return json({ error: "Too many new rooms." }, 429);

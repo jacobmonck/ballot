@@ -117,6 +117,7 @@ export type ServerMessage =
   | { type: "focus"; pnm: Pnm; progress: Progress }
   | { type: "members"; members: MemberInfo[] }
   | { type: "joinLock"; locked: boolean }
+  | { type: "pnmPhoto"; pnmId: string; photoUrl: string }
   | { type: "budget"; yesBudget: number; budgetIsDefault: boolean }
   | ({ type: "progress" } & Progress)
   | ({ type: "tally"; pnmId: string } & Tally)

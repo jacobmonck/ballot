@@ -60,9 +60,23 @@ needs a `CLOUDFLARE_API_TOKEN` secret in its `production` environment, which onl
 Pull requests run the same checks without deploying. To roll back, run
 `bunx wrangler rollback` or revert the commit on `master`.
 
+## Photos
+
+Google Drive photos are copied into Cloudflare R2 once when you import, so phones load them
+from Ballot instead of Drive. Before importing, share the Drive folder with **Anyone with the
+link**. You can turn that off once the host screen has saved every photo. If some fail, fix
+the sharing and choose **Try again**.
+
+The `ballot-photos` R2 bucket must exist before deploying:
+
+```sh
+bunx wrangler r2 bucket create ballot-photos
+```
+
 ## Limits and data
 
-- Rooms and all their data are erased after 30 days without use. Download the CSV first.
+- Rooms and all their data, including saved photos, are erased after 30 days without use.
+  Download the CSV first.
 - A room holds up to 1,000 brothers and 500 PNMs.
 - Each address can start 10 rooms a minute and make 1,200 room requests a minute.
 - One device can send 60 messages every 10 seconds.

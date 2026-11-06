@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import type { ClientMessage, Snapshot } from "../../shared/protocol";
 import { ImportPanel } from "../components/ImportPanel";
 import { MemberList } from "../components/MemberList";
+import { PhotoImport } from "../components/PhotoImport";
 import { PnmPhoto } from "../components/PnmPhoto";
 import { ProgressBar } from "../components/ProgressBar";
 import { CenteredMessage, ConnectionBanner, Notice } from "../components/Status";
@@ -92,6 +93,7 @@ function Panel({ room, send }: { room: Snapshot; send: Send }) {
   return (
     <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)] gap-8 px-5 py-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1fr)_21rem]">
       <div className="min-w-0">
+        {room.hostOnly && <PhotoImport code={room.code} hostKey={room.hostOnly.hostKey} pnms={room.pnms} />}
         {room.phase === "setup" ? (
           <>
             <ImportPanel pnms={room.pnms} onImport={(pnms) => send({ type: "importPnms", pnms })} />
