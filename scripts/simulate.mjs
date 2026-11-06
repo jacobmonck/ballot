@@ -1,10 +1,10 @@
 // Fills a room with fake brothers who vote on whatever the host puts on screen.
-// Usage: node scripts/simulate.mjs CODE [count] [baseUrl]
+// Usage: bun scripts/simulate.mjs CODE [count] [baseUrl]
 // Stop with Ctrl+C. Bots stay connected after voting ends so they can join a revote.
 
 const [code, countArg = "100", baseUrl = "http://localhost:8787"] = process.argv.slice(2);
 if (!code) {
-  console.error("Usage: node scripts/simulate.mjs CODE [count] [baseUrl]");
+  console.error("Usage: bun scripts/simulate.mjs CODE [count] [baseUrl]");
   process.exit(1);
 }
 

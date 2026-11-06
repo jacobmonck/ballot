@@ -38,19 +38,19 @@ Previews use made-up people from `sample-pnms.csv` and simulated voters.
 ## Run it
 
 ```sh
-npm install
-npm test            # server and CSV tests
-npm run preview     # builds the site, serves everything at http://localhost:8787
+bun install
+bun run test        # server and CSV tests
+bun run preview     # builds the site, serves everything at http://localhost:8787
 ```
 
-For front-end work, run `npm run dev:worker` and `npm run dev` together. Vite serves the
+For front-end work, run `bun run dev:worker` and `bun run dev` together. Vite serves the
 site and proxies `/api` to the Worker.
 
 ## Deploy
 
 ```sh
-npx wrangler login
-npm run deploy
+bunx wrangler login
+bun run deploy
 ```
 
 ## Voting night
@@ -75,7 +75,7 @@ To try a full room, paste `sample-pnms.csv` into the host screen, then fill it w
 brothers who vote on whatever you put on screen:
 
 ```sh
-node scripts/simulate.mjs ROOMCODE 100
+bun scripts/simulate.mjs ROOMCODE 100
 ```
 
 To vote as well as host, use **Open my ballot** on your own phone or in a new tab.
