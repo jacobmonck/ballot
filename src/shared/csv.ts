@@ -1,0 +1,98 @@
+import type { PnmInput, QA } from "./protocol";
+
+export type ColumnKind = "name" | "photo" | "question" | "ignore";
+
+// Comma CSV from a downloaded form export, or tab-separated text copied straight out of Google Sheets.
+function detectSeparator(text: string): "," | "\t" {
+  let inQuotes = false;
+  for (const char of text) {
+    if (char === '"') inQuotes = !inQuotes;
+    else if (!inQuotes && (char === "," || char === "\t")) return char;
+    else if (!inQuotes && char === "\n") break;
+  }
+  return ",";
+}
+
+export function parseCsv(input: string): string[][] {
+  const text = input.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+  const separator = detectSeparator(text);
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  const endRow = () => {
+    row.push(cell);
+    cell = "";
+    if (row.some((value) => value !== "")) rows.push(row);
+    row = [];
+  };
+
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]!;
+    if (inQuotes) {
+      if (char !== '"') cell += char;
+      else if (text[index + 1] === '"') {
+        cell += '"';
+        index++;
+      } else inQuotes = false;
+    } else if (char === '"') inQuotes = true;
+    else if (char === separator) {
+      row.push(cell);
+      cell = "";
+    } else if (char === "\n") endRow();
+    else cell += char;
+  }
+  if (cell !== "" || row.length > 0) endRow();
+  return rows;
+}
+
+const DRIVE_ID = /drive\.google\.com\/(?:file\/d\/|(?:open|uc)\?(?:.*&)?id=)([\w-]+)/;
+
+export function normalizePhotoUrl(raw: string): string | null {
+  // File-upload questions list multiple files as a comma-separated cell.
+  const url = raw.split(",")[0]!.trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  const driveId = DRIVE_ID.exec(url)?.[1];
+  return driveId ? `https://drive.google.com/thumbnail?id=${driveId}&sz=w1200` : url;
+}
+
+export function guessColumn(header: string): ColumnKind {
+  const text = header.trim();
+  if (!text || /^(timestamp|score)$/i.test(text) || /e-?mail|phone/i.test(text)) return "ignore";
+  if (/photo|picture|image|headshot|selfie/i.test(text)) return "photo";
+  // Short enough to be a label, and not the imperative "Name three things...".
+  if (/\bname\b/i.test(text) && text.length <= 30 && !/^name\s+\w/i.test(text)) return "name";
+  return "question";
+}
+
+export function buildPnms(rows: string[][], columns: ColumnKind[]): PnmInput[] {
+  const [headers, ...body] = rows;
+  if (!headers) return [];
+  const pnms: PnmInput[] = [];
+
+  for (const row of body) {
+    const nameParts: string[] = [];
+    let photoUrl: string | null = null;
+    const answers: QA[] = [];
+
+    columns.forEach((kind, index) => {
+      const value = (row[index] ?? "").trim();
+      if (kind === "name" && value) nameParts.push(value);
+      else if (kind === "photo" && !photoUrl) photoUrl = normalizePhotoUrl(value);
+      else if (kind === "question" && value) answers.push({ q: (headers[index] ?? "").trim(), a: value });
+    });
+
+    if (nameParts.length > 0) pnms.push({ name: nameParts.join(" "), photoUrl, answers });
+  }
+  return pnms;
+}
+
+export function toCsv(rows: (string | number)[][]): string {
+  const cell = (value: string | number) => {
+    if (typeof value === "number") return String(value);
+    const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+    return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
+  };
+  return rows.map((row) => row.map(cell).join(",")).join("\r\n") + "\r\n";
+}

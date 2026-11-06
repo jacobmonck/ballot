@@ -1,0 +1,115 @@
+import type { ClientMessage, PnmInput, QA } from "../shared/protocol";
+
+const MAX_NAME = 80;
+const MAX_ID = 64;
+const MAX_PNMS = 500;
+const MAX_ANSWERS = 100;
+const MAX_QUESTION = 2_000;
+const MAX_ANSWER = 20_000;
+const MAX_URL = 2_048;
+
+function shortText(value: unknown, max: number): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text.length > 0 && text.length <= max ? text : null;
+}
+
+function parseQA(value: unknown): QA | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { q, a } = value as Record<string, unknown>;
+  const question = shortText(q, MAX_QUESTION);
+  if (question === null || typeof a !== "string" || a.length > MAX_ANSWER) return null;
+  return { q: question, a };
+}
+
+function parsePhotoUrl(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  const text = shortText(value, MAX_URL);
+  if (text === null || !URL.canParse(text)) return undefined;
+  const { protocol } = new URL(text);
+  return protocol === "https:" || protocol === "http:" ? text : undefined;
+}
+
+function parsePnm(value: unknown): PnmInput | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { name, photoUrl, answers } = value as Record<string, unknown>;
+  const cleanName = shortText(name, MAX_NAME);
+  const cleanPhoto = parsePhotoUrl(photoUrl);
+  if (cleanName === null || cleanPhoto === undefined) return null;
+  if (!Array.isArray(answers) || answers.length > MAX_ANSWERS) return null;
+  const cleanAnswers: QA[] = [];
+  for (const answer of answers) {
+    const qa = parseQA(answer);
+    if (qa === null) return null;
+    cleanAnswers.push(qa);
+  }
+  return { name: cleanName, photoUrl: cleanPhoto, answers: cleanAnswers };
+}
+
+function parseJoin(fields: Record<string, unknown>): ClientMessage | null {
+  if (fields.as === "projector") return { type: "join", as: "projector" };
+  if (fields.as === "host") {
+    const hostKey = shortText(fields.hostKey, MAX_ID * 2);
+    return hostKey === null ? null : { type: "join", as: "host", hostKey };
+  }
+  if (fields.as === "brother") {
+    const memberId = shortText(fields.memberId, MAX_ID);
+    const name = shortText(fields.name, MAX_NAME);
+    return memberId === null || name === null ? null : { type: "join", as: "brother", memberId, name };
+  }
+  return null;
+}
+
+export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | null {
+  if (typeof raw !== "string") return null;
+  let fields: unknown;
+  try {
+    fields = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof fields !== "object" || fields === null) return null;
+  const message = fields as Record<string, unknown>;
+
+  switch (message.type) {
+    case "join":
+      return parseJoin(message);
+    case "vote": {
+      const pnmId = shortText(message.pnmId, MAX_ID);
+      const { value } = message;
+      if (pnmId === null || (value !== "yes" && value !== "no" && value !== null)) return null;
+      return { type: "vote", pnmId, value };
+    }
+    case "importPnms": {
+      const { pnms } = message;
+      if (!Array.isArray(pnms) || pnms.length === 0 || pnms.length > MAX_PNMS) return null;
+      const clean = pnms.map(parsePnm);
+      return clean.every((pnm) => pnm !== null) ? { type: "importPnms", pnms: clean as PnmInput[] } : null;
+    }
+    case "setBudget": {
+      const { yesBudget } = message;
+      if (yesBudget !== null && !Number.isInteger(yesBudget)) return null;
+      return { type: "setBudget", yesBudget: yesBudget as number | null };
+    }
+    case "setFocus": {
+      const pnmId = shortText(message.pnmId, MAX_ID);
+      return pnmId === null ? null : { type: "setFocus", pnmId };
+    }
+    case "reveal": {
+      const pnmId = shortText(message.pnmId, MAX_ID);
+      return pnmId === null ? null : { type: "reveal", pnmId };
+    }
+    case "kick": {
+      const handle = shortText(message.handle, MAX_ID);
+      return handle === null ? null : { type: "kick", handle };
+    }
+    case "endSession":
+      return { type: "endSession" };
+    case "startRevote":
+      return { type: "startRevote" };
+    case "revealClass":
+      return { type: "revealClass" };
+    default:
+      return null;
+  }
+}

@@ -1,0 +1,120 @@
+import { useMemo, useState } from "react";
+import { buildPnms, type ColumnKind, guessColumn, parseCsv } from "../../shared/csv";
+import type { Pnm, PnmInput } from "../../shared/protocol";
+import { PnmCard } from "./PnmCard";
+import { PnmPhoto } from "./PnmPhoto";
+
+const KINDS: { value: ColumnKind; label: string }[] = [
+  { value: "name", label: "Name" },
+  { value: "photo", label: "Photo URL" },
+  { value: "question", label: "Question" },
+  { value: "ignore", label: "Ignore" },
+];
+
+export function ImportPanel({ pnms, onImport }: { pnms: Pnm[]; onImport: (pnms: PnmInput[]) => void }) {
+  const [text, setText] = useState("");
+  const rows = useMemo(() => parseCsv(text), [text]);
+  const headers = rows[0] ?? [];
+  const [overrides, setOverrides] = useState<Record<string, ColumnKind>>({});
+  const columns = headers.map((header, index) => overrides[`${index}:${header}`] ?? guessColumn(header));
+  const parsed = useMemo(() => buildPnms(rows, columns), [rows, columns.join()]);
+  const hasPhotoColumn = columns.includes("photo");
+
+  return (
+    <section>
+      <h2 className="type-display">PNMs</h2>
+      <label className="type-headline mt-4 block">
+        Paste the form responses from Google Sheets or a downloaded CSV
+        <textarea
+          className="field mt-2 h-36 resize-y text-sm font-normal"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+      </label>
+      <p className="type-caption mt-2 text-chalk">
+        Photos in Google Drive must be shared as "Anyone with the link" or they won't load.
+      </p>
+
+      {headers.length > 0 && (
+        <>
+          <h3 className="type-headline mt-6">Match each column</h3>
+          <div className="panel mt-2 max-h-80 divide-y divide-hairline overflow-y-auto">
+            {headers.map((header, index) => (
+              <label key={`${index}:${header}`} className="flex items-center justify-between gap-4 px-4 py-2.5">
+                <span className="min-w-0 truncate">{header || `Column ${index + 1}`}</span>
+                <select
+                  className="field w-auto py-1.5 pr-2 pl-3 text-sm"
+                  value={columns[index]}
+                  onChange={(event) =>
+                    setOverrides({ ...overrides, [`${index}:${header}`]: event.target.value as ColumnKind })
+                  }
+                >
+                  {KINDS.map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+
+          {parsed[0] ? (
+            <>
+              <h3 className="type-headline mt-6">First PNM preview</h3>
+              <div className="mt-3 max-w-xs">
+                <PnmCard pnm={parsed[0]} />
+              </div>
+            </>
+          ) : (
+            <p className="mt-4 text-alert">Choose a Name column to see PNMs.</p>
+          )}
+          {!hasPhotoColumn && <p className="mt-2 text-alert">No Photo URL column chosen. PNMs will show initials.</p>}
+
+          <button
+            type="button"
+            disabled={parsed.length === 0}
+            className="btn btn-primary mt-5"
+            onClick={() => {
+              onImport(parsed);
+              setText("");
+              setOverrides({});
+            }}
+          >
+            Import {parsed.length} PNMs
+          </button>
+        </>
+      )}
+
+      {pnms.length > 0 && <PhotoCheck pnms={pnms} />}
+    </section>
+  );
+}
+
+function PhotoCheck({ pnms }: { pnms: Pnm[] }) {
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
+  const missing = pnms.filter((pnm) => !pnm.photoUrl).length;
+  const problems = broken.size + missing;
+
+  return (
+    <div className="mt-8">
+      <h3 className="type-headline">{pnms.length} PNMs imported</h3>
+      <p className={`mt-0.5 ${problems > 0 ? "text-alert" : "text-chalk"}`}>
+        {problems > 0 ? `${problems} without a working photo. They'll show initials.` : "Check that every photo loaded."}
+      </p>
+      <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-3">
+        {pnms.map((pnm) => (
+          <li key={pnm.id} className="type-caption">
+            <PnmPhoto
+              name={pnm.name}
+              url={pnm.photoUrl}
+              className="aspect-square w-full rounded-2xl text-2xl"
+              onBroken={() => setBroken((current) => new Set(current).add(pnm.id))}
+            />
+            <span className="mt-1.5 block truncate">{pnm.name}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

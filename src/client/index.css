@@ -1,0 +1,393 @@
+@import "tailwindcss";
+
+@theme {
+  --color-stage: #1a1a1c;
+  --color-stage-deep: #0f0f11;
+  --color-stage-lift: #2c2c2f;
+  --color-ivory: #f7f4ec;
+  --color-ink: #10130f;
+  --color-chalk: #aeaca7;
+  --color-brass: #e3c16f;
+  --color-alert: #f4a892;
+  --color-hairline: rgb(247 244 236 / 0.1);
+  --font-display: ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+}
+
+/* Tracking and leading tighten as type grows. */
+@utility type-display {
+  font-family: var(--font-display);
+  font-size: clamp(2.25rem, 8vw, 3rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+}
+
+@utility type-title {
+  font-family: var(--font-display);
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.018em;
+}
+
+@utility type-headline {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.008em;
+}
+
+@utility type-caption {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.006em;
+}
+
+@utility type-code {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+html {
+  background: var(--color-stage-deep);
+}
+
+html,
+body,
+#root {
+  min-height: 100dvh;
+}
+
+body {
+  color: var(--color-ivory);
+  font-family: var(--font-sans);
+  font-optical-sizing: auto;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* One lamp over the table. It stays still so nothing moves behind the content. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(120% 75% at 50% -12%, #333230 0%, var(--color-stage) 48%, var(--color-stage-deep) 100%);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brass);
+  outline-offset: 2px;
+}
+
+button:not(:disabled),
+summary,
+select {
+  cursor: pointer;
+}
+
+@layer components {
+  .panel {
+    border-radius: 1.25rem;
+    background: rgb(247 244 236 / 0.05);
+    box-shadow: inset 0 0 0 1px var(--color-hairline);
+  }
+
+  .glass {
+    background: rgb(24 24 26 / 0.66);
+    -webkit-backdrop-filter: blur(24px) saturate(170%);
+    backdrop-filter: blur(24px) saturate(170%);
+    box-shadow:
+      inset 0 1px 0 rgb(247 244 236 / 0.12),
+      0 -12px 40px rgb(0 0 0 / 0.28);
+  }
+
+  .glass-chip {
+    background: rgb(24 24 26 / 0.78);
+    -webkit-backdrop-filter: blur(16px) saturate(170%);
+    backdrop-filter: blur(16px) saturate(170%);
+    box-shadow:
+      inset 0 0 0 1px var(--color-hairline),
+      0 10px 30px rgb(0 0 0 / 0.35);
+  }
+
+  /* Content fades under the bar instead of meeting a hard line. */
+  .scroll-edge {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  .scroll-edge::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -1rem;
+    z-index: -1;
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    -webkit-mask-image: linear-gradient(black 55%, transparent);
+    mask-image: linear-gradient(black 55%, transparent);
+  }
+
+  /* Hints at rows below the fold, since overlay scrollbars stay hidden until used. */
+  .scroll-fade {
+    -webkit-mask-image: linear-gradient(black calc(100% - 2.75rem), transparent);
+    mask-image: linear-gradient(black calc(100% - 2.75rem), transparent);
+  }
+
+  .seat-wall {
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(transparent, black 1.5vw, black calc(100% - 1.5vw), transparent);
+    mask-image: linear-gradient(transparent, black 1.5vw, black calc(100% - 1.5vw), transparent);
+  }
+
+  .btn {
+    display: inline-flex;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    padding: 0.5rem 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.006em;
+    transition:
+      scale 100ms ease-out,
+      background-color 150ms ease,
+      opacity 150ms ease;
+  }
+
+  .btn:active:not(:disabled) {
+    scale: 0.97;
+  }
+
+  .btn:disabled {
+    opacity: 0.4;
+  }
+
+  .btn-lg {
+    min-height: 3.25rem;
+    padding-inline: 1.5rem;
+    font-size: 1.0625rem;
+  }
+
+  .btn-sm {
+    min-height: 2.25rem;
+    padding: 0.25rem 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  .btn-primary {
+    background: var(--color-ivory);
+    color: var(--color-ink);
+  }
+
+  .btn-secondary {
+    background: rgb(247 244 236 / 0.1);
+    color: var(--color-ivory);
+  }
+
+  .btn-danger {
+    background: rgb(244 168 146 / 0.12);
+    color: var(--color-alert);
+  }
+
+  @media (hover: hover) {
+    .btn-primary:hover:not(:disabled) {
+      background: #fff;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: rgb(247 244 236 / 0.16);
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: rgb(244 168 146 / 0.2);
+    }
+  }
+
+  .link {
+    color: var(--color-chalk);
+    font-weight: 500;
+    text-decoration: underline;
+    text-decoration-color: rgb(174 172 167 / 0.4);
+    text-underline-offset: 0.2em;
+    transition:
+      color 150ms ease,
+      opacity 100ms ease-out;
+  }
+
+  .link:active {
+    opacity: 0.6;
+  }
+
+  @media (hover: hover) {
+    .link:hover {
+      color: var(--color-ivory);
+    }
+  }
+
+  .field {
+    width: 100%;
+    border-radius: 0.875rem;
+    background: rgb(0 0 0 / 0.22);
+    padding: 0.75rem 1rem;
+    font-size: 1.0625rem;
+    color: var(--color-ivory);
+    box-shadow: inset 0 0 0 1px var(--color-hairline);
+    transition: box-shadow 150ms ease;
+  }
+
+  .field:focus {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--color-brass);
+  }
+
+  .field::placeholder {
+    color: rgb(174 172 167 / 0.6);
+  }
+
+  .code-cell {
+    display: flex;
+    aspect-ratio: 5 / 6;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.75rem;
+    background: rgb(0 0 0 / 0.22);
+    font-size: 1.625rem;
+    box-shadow: inset 0 0 0 1px var(--color-hairline);
+    transition: box-shadow 120ms ease;
+  }
+
+  .code-cell[data-active="true"] {
+    box-shadow: inset 0 0 0 2px var(--color-brass);
+  }
+}
+
+/* The ballot marbles are the one decorative element in the app. */
+.ball-yes {
+  background: radial-gradient(circle at 34% 28%, #ffffff 0%, #f5f1e6 42%, #c9c2ae 100%);
+  color: var(--color-ink);
+  box-shadow:
+    inset 0 -2px 6px rgb(90 80 50 / 0.25),
+    0 6px 16px rgb(0 0 0 / 0.32);
+}
+
+.ball-no {
+  background: radial-gradient(circle at 34% 28%, #5c6158 0%, #1f231d 40%, #060705 100%);
+  color: var(--color-ivory);
+  box-shadow:
+    inset 0 0 0 1px rgb(245 241 230 / 0.28),
+    0 6px 16px rgb(0 0 0 / 0.32);
+}
+
+.ball-spent {
+  background: rgb(0 0 0 / 0.25);
+  box-shadow: inset 0 0 0 1px rgb(174 172 167 / 0.55);
+}
+
+/* Shows that a ballot was cast without hinting at which way. */
+.ball-cast {
+  background: radial-gradient(circle at 34% 28%, #fbeec6 0%, var(--color-brass) 48%, #9a7a2c 100%);
+}
+
+/* Slow drifting light behind the projector view. Only transforms move, so it stays cheap on a big screen. */
+.aurora {
+  position: absolute;
+  width: 80vmax;
+  height: 80vmax;
+  border-radius: 50%;
+  will-change: transform;
+  animation: 26s ease-in-out infinite alternate;
+}
+
+.aurora-a {
+  top: -45vmax;
+  left: -25vmax;
+  background: radial-gradient(closest-side, rgb(214 160 78 / 0.26), transparent);
+  animation-name: aurora-a;
+}
+
+.aurora-b {
+  top: -30vmax;
+  right: -30vmax;
+  background: radial-gradient(closest-side, rgb(128 138 168 / 0.2), transparent);
+  animation-name: aurora-b;
+  animation-duration: 34s;
+}
+
+.aurora-c {
+  bottom: -50vmax;
+  left: 10vmax;
+  background: radial-gradient(closest-side, rgb(176 96 58 / 0.22), transparent);
+  animation-name: aurora-c;
+  animation-duration: 41s;
+}
+
+@keyframes aurora-a {
+  to {
+    transform: translate3d(48vw, 34vh, 0) scale(1.25);
+  }
+}
+
+@keyframes aurora-b {
+  to {
+    transform: translate3d(-52vw, 40vh, 0) scale(0.85);
+  }
+}
+
+@keyframes aurora-c {
+  to {
+    transform: translate3d(30vw, -38vh, 0) scale(1.3);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-chip {
+    background: var(--color-stage-deep);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .scroll-edge::before {
+    background: var(--color-stage-deep);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --color-hairline: rgb(247 244 236 / 0.6);
+    --color-chalk: #e2e0db;
+  }
+
+  .glass,
+  .glass-chip {
+    background: var(--color-stage-deep);
+    box-shadow: inset 0 0 0 1px var(--color-ivory);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .link,
+  .code-cell {
+    transition: none;
+  }
+
+  .btn:active:not(:disabled) {
+    scale: 1;
+  }
+
+  .aurora {
+    animation: none;
+  }
+}
