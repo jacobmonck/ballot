@@ -54,7 +54,11 @@ export function normalizePhotoUrl(raw: string): string | null {
   const url = raw.split(",")[0]!.trim();
   if (!/^https?:\/\//i.test(url)) return null;
   const driveId = DRIVE_ID.exec(url)?.[1];
-  return driveId ? `https://drive.google.com/thumbnail?id=${driveId}&sz=w1200` : url;
+  return driveId ? `https://drive.google.com/thumbnail?id=${driveId}&sz=w800` : url;
+}
+
+export function isDrivePhoto(url: string): boolean {
+  return /^https:\/\/drive\.google\.com\/thumbnail\?id=[\w-]+&sz=w\d+$/.test(url);
 }
 
 export function guessColumn(header: string): ColumnKind {

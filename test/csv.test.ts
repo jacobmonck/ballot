@@ -32,7 +32,7 @@ describe("parseCsv", () => {
 });
 
 describe("normalizePhotoUrl", () => {
-  const thumbnail = "https://drive.google.com/thumbnail?id=abc_123-X&sz=w1200";
+  const thumbnail = "https://drive.google.com/thumbnail?id=abc_123-X&sz=w800";
   it("rewrites /file/d/ID/view links", () => {
     expect(normalizePhotoUrl("https://drive.google.com/file/d/abc_123-X/view?usp=sharing")).toBe(thumbnail);
   });
@@ -84,7 +84,7 @@ describe("buildPnms", () => {
     expect(pnms).toEqual([
       {
         name: "Sam",
-        photoUrl: "https://drive.google.com/thumbnail?id=ID1&sz=w1200",
+        photoUrl: "https://drive.google.com/thumbnail?id=ID1&sz=w800",
         answers: [{ q: "Why us?", a: "Brotherhood" }],
       },
       {

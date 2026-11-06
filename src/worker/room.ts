@@ -20,6 +20,7 @@ import {
   type Tie,
   type VoteValue,
 } from "../shared/protocol";
+import { photoKey } from "./photos";
 import { migrate } from "./schema";
 import { parseClientMessage } from "./validate";
 
@@ -147,12 +148,40 @@ export class VotingRoom extends DurableObject<Env> {
   // PNM answers and photos are personal data, so a room is erased after a month without use.
   async alarm(): Promise<void> {
     for (const socket of this.ctx.getWebSockets()) socket.close(1000, "room expired");
+    await this.deletePhotos();
     await this.ctx.storage.deleteAll();
     migrate(this.sql);
   }
 
   async exists(): Promise<boolean> {
     return this.roomOrNull() !== undefined;
+  }
+
+  // The Drive address a host may copy into storage, or why they can't.
+  async photoSource(hostKey: string, pnmId: string): Promise<string> {
+    if (!timingSafeEqual(hostKey, this.room().host_key)) return "forbidden";
+    return (
+      this.sql.exec<{ photo_url: string | null }>("SELECT photo_url FROM pnm WHERE id = ?", pnmId).toArray()[0]?.photo_url ??
+      "missing"
+    );
+  }
+
+  async savePhoto(hostKey: string, pnmId: string, source: string, photoUrl: string): Promise<boolean> {
+    if (!timingSafeEqual(hostKey, this.room().host_key)) return false;
+    const { rowsWritten } = this.sql.exec(
+      "UPDATE pnm SET photo_url = ? WHERE id = ? AND photo_url = ?",
+      photoUrl,
+      pnmId,
+      source,
+    );
+    if (rowsWritten === 0) return false;
+    const { seen } = this.sql.exec<{ seen: number }>("SELECT seen FROM pnm WHERE id = ?", pnmId).one();
+    const message: ServerMessage = { type: "pnmPhoto", pnmId, photoUrl };
+    // A PNM brothers haven't reached yet stays off their phones, photo included.
+    if (seen) this.broadcast(message);
+    else this.sendToHosts(message);
+    this.keepAlive();
+    return true;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -360,6 +389,7 @@ export class VotingRoom extends DurableObject<Env> {
     if (this.room().phase !== "setup") {
       throw new Refusal("wrong_phase", "PNMs cannot be replaced after voting has started.");
     }
+    const replacedPhotos = this.photoKeys();
     this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM pnm");
       pnms.forEach((pnm, index) => {
@@ -374,6 +404,19 @@ export class VotingRoom extends DurableObject<Env> {
       });
     });
     this.broadcastSnapshots();
+    if (replacedPhotos.length > 0) this.ctx.waitUntil(this.env.PHOTOS.delete(replacedPhotos));
+  }
+
+  private photoKeys(): string[] {
+    return this.sql
+      .exec<{ photo_url: string | null }>("SELECT photo_url FROM pnm")
+      .toArray()
+      .flatMap(({ photo_url }) => photoKey(photo_url ?? "") ?? []);
+  }
+
+  private async deletePhotos() {
+    const keys = this.photoKeys();
+    if (keys.length > 0) await this.env.PHOTOS.delete(keys);
   }
 
   private setBudget(yesBudget: number | null) {

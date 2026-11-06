@@ -1,5 +1,5 @@
 import { SELF, env, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { VotingRoom } from "../src/worker/room";
 import { CLOSE_KICKED } from "../src/shared/protocol";
 import { connect, createRoom, fakePnms, focus, joinBrother, joinHost, membersUntil, projectorKey, seededRoom, settle } from "./helpers";
@@ -871,5 +871,110 @@ describe("retention", () => {
     });
     expect(count).toBe(0);
     expect(await stub.claim(code, "new-host", "new-projector")).toBe(true);
+  });
+});
+
+describe("photo import", () => {
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+  const drive = (id: string) => `https://drive.google.com/thumbnail?id=${id}&sz=w800`;
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function answerFromDrive(response: () => Response) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(async () => response());
+  }
+
+  async function driveRoom(photoUrl = drive("abc")) {
+    const { code, hostKey } = await createRoom();
+    const { client: host } = await joinHost(code, hostKey);
+    host.send({ type: "importPnms", pnms: [{ name: "Photo Person", photoUrl, answers: [] }] });
+    const { pnms } = await host.next("snapshot");
+    return { code, hostKey, host, pnmId: pnms[0]!.id };
+  }
+
+  const save = (code: string, pnmId: string, hostKey: string) =>
+    SELF.fetch(`https://voting.test/api/rooms/${code}/photos/${pnmId}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${hostKey}` },
+    });
+
+  it("copies a Drive photo into storage and serves it with a long cache", async () => {
+    const { code, hostKey, host, pnmId } = await driveRoom();
+    answerFromDrive(() => new Response(JPEG, { headers: { "Content-Type": "image/jpeg" } }));
+
+    const response = await save(code, pnmId, hostKey);
+    expect(response.status).toBe(200);
+    const { photoUrl } = (await response.json()) as { photoUrl: string };
+    expect(photoUrl).toMatch(new RegExp(`^/photos/${code}/[0-9a-f-]{36}$`));
+    expect((await host.next("pnmPhoto")).photoUrl).toBe(photoUrl);
+
+    const photo = await SELF.fetch(`https://voting.test${photoUrl}`);
+    expect(photo.status).toBe(200);
+    expect(photo.headers.get("Content-Type")).toBe("image/jpeg");
+    expect(photo.headers.get("Cache-Control")).toContain("immutable");
+    expect(new Uint8Array(await photo.arrayBuffer())).toEqual(JPEG);
+
+    expect((await save(code, pnmId, hostKey)).status).toBe(404);
+  });
+
+  it("reports a private Drive file instead of storing its sign-in page", async () => {
+    const { code, hostKey, pnmId } = await driveRoom();
+    answerFromDrive(() => new Response("<html>Sign in</html>", { headers: { "Content-Type": "text/html" } }));
+    const response = await save(code, pnmId, hostKey);
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ status: "not_shared" });
+  });
+
+  it("marks a Drive slowdown as worth retrying", async () => {
+    const { code, hostKey, pnmId } = await driveRoom();
+    answerFromDrive(() => new Response("slow down", { status: 429 }));
+    expect(await (await save(code, pnmId, hostKey)).json()).toEqual({ status: "unavailable" });
+  });
+
+  it("refuses the wrong host key without calling Drive", async () => {
+    const { code, pnmId } = await driveRoom();
+    const download = answerFromDrive(() => new Response(JPEG));
+    expect((await save(code, pnmId, "wrong")).status).toBe(403);
+    expect(download).not.toHaveBeenCalled();
+  });
+
+  it("never fetches an address that isn't a Drive thumbnail", async () => {
+    const { code, hostKey, pnmId } = await driveRoom("https://internal.example/secret.jpg");
+    const download = answerFromDrive(() => new Response(JPEG));
+    expect((await save(code, pnmId, hostKey)).status).toBe(404);
+    expect(download).not.toHaveBeenCalled();
+  });
+
+  it("keeps the saved photo of an unseen PNM off brothers' phones", async () => {
+    const { code, hostKey, host, pnmId } = await driveRoom();
+    const { client: brother } = await joinBrother(code, "Jacob");
+    answerFromDrive(() => new Response(JPEG, { headers: { "Content-Type": "image/jpeg" } }));
+    await save(code, pnmId, hostKey);
+    await host.next("pnmPhoto");
+    await settle(brother);
+    expect(brother.has("pnmPhoto")).toBe(false);
+  });
+
+  it("erases saved photos when the room expires", async () => {
+    const { code, hostKey, host, pnmId } = await driveRoom();
+    answerFromDrive(() => new Response(JPEG, { headers: { "Content-Type": "image/jpeg" } }));
+    const { photoUrl } = (await (await save(code, pnmId, hostKey)).json()) as { photoUrl: string };
+    await runDurableObjectAlarm(env.ROOM.getByName(code));
+    await host.closed();
+    expect((await SELF.fetch(`https://voting.test${photoUrl}`)).status).toBe(404);
+  });
+
+  it("erases saved photos when the PNM list is replaced", async () => {
+    const { code, hostKey, host, pnmId } = await driveRoom();
+    answerFromDrive(() => new Response(JPEG, { headers: { "Content-Type": "image/jpeg" } }));
+    const { photoUrl } = (await (await save(code, pnmId, hostKey)).json()) as { photoUrl: string };
+    await host.next("pnmPhoto");
+    host.send({ type: "importPnms", pnms: fakePnms(1) });
+    await host.next("snapshot");
+    await vi.waitFor(async () => {
+      expect((await SELF.fetch(`https://voting.test${photoUrl}`)).status).toBe(404);
+    });
   });
 });

@@ -45,6 +45,11 @@ function applyToRoom(room: Snapshot, message: ServerMessage): Snapshot {
       return { ...room, members: message.members };
     case "joinLock":
       return { ...room, joinLocked: message.locked };
+    case "pnmPhoto":
+      return {
+        ...room,
+        pnms: room.pnms.map((pnm) => (pnm.id === message.pnmId ? { ...pnm, photoUrl: message.photoUrl } : pnm)),
+      };
     case "budget":
       return { ...room, yesBudget: message.yesBudget, budgetIsDefault: message.budgetIsDefault };
     case "progress":
