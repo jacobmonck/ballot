@@ -1,5 +1,5 @@
 import { ROOM_CODE_PATTERN } from "../shared/protocol";
-import { generateHostKey, generateRoomCode } from "./code";
+import { generateKey, generateRoomCode } from "./code";
 
 export { VotingRoom } from "./room";
 
@@ -9,8 +9,8 @@ const ROOM_ROUTE = /^\/api\/rooms\/([^/]+)(\/ws)?$/;
 async function createRoom(env: Env): Promise<Response> {
   for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
     const code = generateRoomCode();
-    const hostKey = generateHostKey();
-    if (await env.ROOM.getByName(code).claim(code, hostKey)) {
+    const hostKey = generateKey();
+    if (await env.ROOM.getByName(code).claim(code, hostKey, generateKey())) {
       return Response.json({ code, hostKey }, { status: 201 });
     }
   }

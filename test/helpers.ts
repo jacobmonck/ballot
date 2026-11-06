@@ -1,4 +1,4 @@
-import { SELF } from "cloudflare:test";
+import { SELF, env, runInDurableObject } from "cloudflare:test";
 import type { ClientMessage, PnmInput, ServerMessage } from "../src/shared/protocol";
 
 type Of<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T }>;
@@ -89,6 +89,12 @@ export async function joinBrother(code: string, name: string, memberId: string =
   client.send({ type: "join", as: "brother", memberId, name });
   const snapshot = await client.next("snapshot");
   return { client, snapshot, memberId };
+}
+
+export async function projectorKey(code: string) {
+  return runInDurableObject(env.ROOM.getByName(code), (_, state) => {
+    return state.storage.sql.exec<{ projector_key: string }>("SELECT projector_key FROM room").one().projector_key;
+  });
 }
 
 export async function joinHost(code: string, hostKey: string) {

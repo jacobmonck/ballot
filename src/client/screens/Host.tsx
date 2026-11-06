@@ -251,7 +251,8 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
 }
 
 function Sidebar({ room, send }: { room: Snapshot; send: Send }) {
-  const projectorUrl = `${location.origin}/p/${room.code}`;
+  // The key sits in the fragment, so it never reaches a server log or a Referer header.
+  const projectorUrl = `${location.origin}/p/${room.code}#${room.hostOnly?.projectorKey}`;
   return (
     <aside className="space-y-3 lg:sticky lg:top-8 lg:self-start">
       <section className="panel p-5">

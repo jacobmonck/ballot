@@ -74,7 +74,7 @@ export interface ClassMember {
 export type ClientMessage =
   | { type: "join"; as: "brother"; memberId: string; name: string }
   | { type: "join"; as: "host"; hostKey: string }
-  | { type: "join"; as: "projector" }
+  | { type: "join"; as: "projector"; projectorKey: string }
   | { type: "vote"; pnmId: string; value: VoteValue | null }
   | { type: "importPnms"; pnms: PnmInput[] }
   | { type: "setBudget"; yesBudget: number | null }
@@ -106,7 +106,7 @@ export interface Snapshot {
   classReveal: ClassMember[] | null;
   myVotes: Record<string, VoteValue>;
   yesUsed: number;
-  hostOnly?: { hostKey: string; tallies: Record<string, Tally>; results: Results | null };
+  hostOnly?: { hostKey: string; projectorKey: string; tallies: Record<string, Tally>; results: Results | null };
 }
 
 export type ServerMessage =
@@ -127,6 +127,7 @@ export type ErrorCode =
   | "not_joined"
   | "already_joined"
   | "bad_host_key"
+  | "bad_projector_key"
   | "forbidden"
   | "kicked"
   | "session_ended"

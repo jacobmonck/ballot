@@ -59,7 +59,8 @@ bun run deploy
 2. Paste the form responses and match each column. Check every photo loaded.
 3. Copy the host key somewhere safe. It is the only way to move the room to another device.
 4. Set **Class size**. This is also how many Yes votes each brother gets.
-5. Open the projector view on the big screen. Brothers join with the code.
+5. Choose **Open projector view** on the host screen and put it on the big screen. That link
+   has a private key, so keep it to the projector. Brothers join with the code.
 6. Choose **Start voting**, then **Next** after each pro/con/pro. To show the room a PNM's
    result first, choose **Reveal votes**. Tallies stay hidden from the projector until you do.
 7. Choose **End voting** when finished. This freezes votes.

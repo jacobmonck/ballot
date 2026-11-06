@@ -2,7 +2,7 @@ import { SELF, env, evictDurableObject, runInDurableObject } from "cloudflare:te
 import { describe, expect, it } from "vitest";
 import type { VotingRoom } from "../src/worker/room";
 import { CLOSE_KICKED } from "../src/shared/protocol";
-import { connect, createRoom, fakePnms, focus, joinBrother, joinHost, seededRoom, settle } from "./helpers";
+import { connect, createRoom, fakePnms, focus, joinBrother, joinHost, projectorKey, seededRoom, settle } from "./helpers";
 
 describe("rooms", () => {
   it("creates a room with a valid code and unique host key", async () => {
@@ -40,7 +40,7 @@ describe("rooms", () => {
 
   it("refuses to claim the same code twice", async () => {
     const { code } = await createRoom();
-    expect(await env.ROOM.getByName(code).claim(code, "other")).toBe(false);
+    expect(await env.ROOM.getByName(code).claim(code, "other", "other")).toBe(false);
   });
 
   it("registers the ping/pong auto-response so heartbeats do not wake the object", async () => {
@@ -403,7 +403,7 @@ describe("privacy", () => {
     const { code, hostKey, host, ids } = await seededRoom(2);
     const { client: voter, memberId } = await joinBrother(code, "Voter");
     const projector = await connect(code);
-    projector.send({ type: "join", as: "projector" });
+    projector.send({ type: "join", as: "projector", projectorKey: await projectorKey(code) });
     await projector.next("snapshot");
 
     await focus(host, [voter], ids[0]!);
@@ -421,7 +421,7 @@ describe("privacy", () => {
     const { snapshot: hostView } = await joinHost(code, hostKey);
     expect(hostView.revealed).toMatchObject({ pnmId: ids[0], yes: 1 });
     const returning = await connect(code);
-    returning.send({ type: "join", as: "projector" });
+    returning.send({ type: "join", as: "projector", projectorKey: await projectorKey(code) });
     expect((await returning.next("snapshot")).revealed).toMatchObject({ pnmId: ids[0], yes: 1 });
   });
 
@@ -447,12 +447,48 @@ describe("privacy", () => {
     expect((await host.next("error")).code).toBe("wrong_phase");
   });
 
+  it("keeps a reconnecting projector on the tally from the reveal, even if votes change after it", async () => {
+    const { code, host, ids } = await seededRoom(1);
+    const { client: a } = await joinBrother(code, "A");
+    await focus(host, [a], ids[0]!);
+    a.send({ type: "vote", pnmId: ids[0]!, value: "yes" });
+    await settle(a);
+    host.send({ type: "reveal", pnmId: ids[0]! });
+    await host.next("revealed");
+
+    a.send({ type: "vote", pnmId: ids[0]!, value: "no" });
+    await settle(a);
+
+    const returning = await connect(code);
+    returning.send({ type: "join", as: "projector", projectorKey: await projectorKey(code) });
+    expect((await returning.next("snapshot")).revealed).toEqual({ pnmId: ids[0], yes: 1, no: 0 });
+  });
+
+  it("refuses a projector without the room's key", async () => {
+    const { code } = await seededRoom(1);
+    const wrong = await connect(code);
+    wrong.send({ type: "join", as: "projector", projectorKey: "not-the-key" });
+    expect((await wrong.next("error")).code).toBe("bad_projector_key");
+
+    const missing = await connect(code);
+    missing.send({ type: "join", as: "projector" } as never);
+    expect((await missing.next("error")).code).toBe("bad_message");
+  });
+
+  it("only gives the projector key to the host", async () => {
+    const { code, hostKey } = await seededRoom(1);
+    const { snapshot: hostView } = await joinHost(code, hostKey);
+    expect(hostView.hostOnly?.projectorKey).toBe(await projectorKey(code));
+    const { snapshot: brotherView } = await joinBrother(code, "A");
+    expect(JSON.stringify(brotherView)).not.toContain(await projectorKey(code));
+  });
+
   it("never sends a tally or another member's vote value to a brother or projector", async () => {
     const { code, host, ids } = await seededRoom(2);
     const { client: voter } = await joinBrother(code, "Voter");
     const { client: watcher } = await joinBrother(code, "Watcher");
     const projector = await connect(code);
-    projector.send({ type: "join", as: "projector" });
+    projector.send({ type: "join", as: "projector", projectorKey: await projectorKey(code) });
     await projector.next("snapshot");
 
     await focus(host, [voter, watcher], ids[0]!);
@@ -592,7 +628,7 @@ describe("results", () => {
   it("shows the class to host and projector in interview order, without tallies or rank", async () => {
     const { code, host, ids, a, memberId } = await decidedRoom();
     const projector = await connect(code);
-    projector.send({ type: "join", as: "projector" });
+    projector.send({ type: "join", as: "projector", projectorKey: await projectorKey(code) });
     expect((await projector.next("snapshot")).classReveal).toBeNull();
     host.send({ type: "endSession" });
     await host.next("ended");
@@ -608,7 +644,7 @@ describe("results", () => {
     expect((await host.next("classRevealed")).members).toEqual(members);
 
     const late = await connect(code);
-    late.send({ type: "join", as: "projector" });
+    late.send({ type: "join", as: "projector", projectorKey: await projectorKey(code) });
     expect((await late.next("snapshot")).classReveal).toEqual(members);
 
     expect(a.received.filter(({ type }) => type === "classRevealed")).toHaveLength(0);
@@ -626,7 +662,7 @@ describe("results", () => {
     expect((await host.next("error")).code).toBe("tie_unresolved");
 
     const projector = await connect(code);
-    projector.send({ type: "join", as: "projector" });
+    projector.send({ type: "join", as: "projector", projectorKey: await projectorKey(code) });
     await projector.next("snapshot");
     projector.send({ type: "revealClass" });
     expect((await projector.next("error")).code).toBe("forbidden");

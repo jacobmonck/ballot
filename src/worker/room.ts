@@ -32,9 +32,12 @@ interface Attachment {
 type RoomRow = {
   code: string;
   host_key: string;
+  projector_key: string;
   yes_budget: number;
   focus_pnm_id: string | null;
   revealed_pnm_id: string | null;
+  revealed_yes: number | null;
+  revealed_no: number | null;
   revote_spots: number | null;
   class_revealed: number;
   phase: Phase;
@@ -113,12 +116,13 @@ export class VotingRoom extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
-  async claim(code: string, hostKey: string): Promise<boolean> {
+  async claim(code: string, hostKey: string, projectorKey: string): Promise<boolean> {
     if (this.roomOrNull()) return false;
     this.sql.exec(
-      "INSERT INTO room (id, code, host_key, phase, created_at) VALUES (1, ?, ?, 'setup', ?)",
+      "INSERT INTO room (id, code, host_key, projector_key, phase, created_at) VALUES (1, ?, ?, ?, 'setup', ?)",
       code,
       hostKey,
+      projectorKey,
       Date.now(),
     );
     return true;
@@ -168,7 +172,7 @@ export class VotingRoom extends DurableObject<Env> {
       if (this.attachment(ws)) throw new Refusal("already_joined", "Already joined.");
       if (message.as === "brother") this.joinBrother(ws, message.memberId, message.name);
       else if (message.as === "host") this.joinHost(ws, message.hostKey);
-      else this.attach(ws, { role: "projector", memberId: null });
+      else this.joinProjector(ws, message.projectorKey);
       return;
     }
 
@@ -212,6 +216,13 @@ export class VotingRoom extends DurableObject<Env> {
       throw new Refusal("bad_host_key", "That host key is not valid for this room.");
     }
     this.attach(ws, { role: "host", memberId: null });
+  }
+
+  private joinProjector(ws: WebSocket, projectorKey: string) {
+    if (!timingSafeEqual(projectorKey, this.room().projector_key)) {
+      throw new Refusal("bad_projector_key", "That projector link is not valid for this room.");
+    }
+    this.attach(ws, { role: "projector", memberId: null });
   }
 
   private joinBrother(ws: WebSocket, memberId: string, name: string) {
@@ -335,7 +346,10 @@ export class VotingRoom extends DurableObject<Env> {
       throw new Refusal("not_in_revote", "Only the tied PNMs are open for voting.");
     }
     this.sql.exec("UPDATE pnm SET seen = 1 WHERE id = ?", pnmId);
-    this.sql.exec("UPDATE room SET focus_pnm_id = ?, revealed_pnm_id = NULL, phase = 'live'", pnmId);
+    this.sql.exec(
+      "UPDATE room SET focus_pnm_id = ?, revealed_pnm_id = NULL, revealed_yes = NULL, revealed_no = NULL, phase = 'live'",
+      pnmId,
+    );
     this.broadcast({ type: "focus", pnm: toPnm(row), progress: this.progress(pnmId) });
   }
 
@@ -344,8 +358,10 @@ export class VotingRoom extends DurableObject<Env> {
     if (room.phase !== "live" || room.focus_pnm_id !== pnmId) {
       throw new Refusal("wrong_phase", "Only the PNM on screen can be revealed.");
     }
-    this.sql.exec("UPDATE room SET revealed_pnm_id = ?", pnmId);
-    this.sendToScreens({ type: "revealed", ...this.revealed(pnmId) });
+    // Votes stay open after a reveal, so the tally is frozen here. A reconnect must not show later changes.
+    const { yes, no } = this.tallies()[pnmId] ?? { yes: 0, no: 0 };
+    this.sql.exec("UPDATE room SET revealed_pnm_id = ?, revealed_yes = ?, revealed_no = ?", pnmId, yes, no);
+    this.sendToScreens({ type: "revealed", pnmId, yes, no });
   }
 
   private kick(handle: string) {
@@ -394,7 +410,7 @@ export class VotingRoom extends DurableObject<Env> {
       this.sql.exec("DELETE FROM vote WHERE pnm_id = ?", pnmId);
     }
     this.sql.exec(
-      "UPDATE room SET phase = 'live', focus_pnm_id = ?, revealed_pnm_id = NULL, revote_spots = ?",
+      "UPDATE room SET phase = 'live', focus_pnm_id = ?, revealed_pnm_id = NULL, revealed_yes = NULL, revealed_no = NULL, revote_spots = ?",
       tie.pnmIds[0]!,
       tie.spots,
     );
@@ -492,8 +508,9 @@ export class VotingRoom extends DurableObject<Env> {
     return { pnmIds: rows.map(({ id }) => id), spots };
   }
 
-  private revealed(pnmId: string): Revealed {
-    return { pnmId, ...(this.tallies()[pnmId] ?? { yes: 0, no: 0 }) };
+  private revealed({ revealed_pnm_id, revealed_yes, revealed_no }: RoomRow): Revealed | null {
+    if (revealed_pnm_id === null) return null;
+    return { pnmId: revealed_pnm_id, yes: revealed_yes ?? 0, no: revealed_no ?? 0 };
   }
 
   private results(): Results {
@@ -550,7 +567,7 @@ export class VotingRoom extends DurableObject<Env> {
       pnms,
       members: this.members(),
       progress: room.focus_pnm_id ? this.progress(room.focus_pnm_id) : null,
-      revealed: role !== "brother" && room.revealed_pnm_id ? this.revealed(room.revealed_pnm_id) : null,
+      revealed: role !== "brother" ? this.revealed(room) : null,
       revote: this.revote(),
       classReveal: role !== "brother" && room.class_revealed ? this.classMembers() : null,
       myVotes,
@@ -558,6 +575,7 @@ export class VotingRoom extends DurableObject<Env> {
       ...(isHost && {
         hostOnly: {
           hostKey: room.host_key,
+          projectorKey: room.projector_key,
           tallies: this.tallies(),
           results: room.phase === "ended" ? this.results() : null,
         },

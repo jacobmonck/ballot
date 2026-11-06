@@ -13,7 +13,7 @@ const PONG_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 8_000;
 const MAX_BACKOFF_MS = 8_000;
 const VOTE_REJECTIONS: ErrorCode[] = ["budget_exhausted", "not_seen", "not_in_revote", "session_ended"];
-const JOIN_REFUSALS: ErrorCode[] = ["bad_host_key", "kicked", "session_ended"];
+const JOIN_REFUSALS: ErrorCode[] = ["bad_host_key", "bad_projector_key", "kicked", "session_ended"];
 
 export type Connection = "connecting" | "open" | "reconnecting" | "refused";
 

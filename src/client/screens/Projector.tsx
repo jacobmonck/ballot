@@ -10,7 +10,6 @@ import { CenteredMessage, ConnectionBanner } from "../components/Status";
 import { flick, settle } from "../feel";
 import { type Connection, useRoom } from "../useRoom";
 
-const JOIN: ClientMessage = { type: "join", as: "projector" };
 const LOBBY_MIN_CAPACITY = 40;
 const LOBBY_NAMES_SHOWN = 28;
 const REVEAL_COUNT_S = 0.9;
@@ -32,8 +31,14 @@ const DRIFT_VW_PER_S = 2.5;
 
 export function Projector() {
   const code = useParams().code!.toUpperCase();
-  const { room, connection, refusal } = useRoom(code, JOIN);
+  const projectorKey = useMemo(() => location.hash.slice(1), []);
+  const join = useMemo<ClientMessage | null>(
+    () => (projectorKey ? { type: "join", as: "projector", projectorKey } : null),
+    [projectorKey],
+  );
+  const { room, connection, refusal } = useRoom(code, join);
 
+  if (!projectorKey) return <CenteredMessage title="Open the projector view from the host screen" />;
   if (refusal) return <CenteredMessage title={refusal} />;
   if (!room) return <CenteredMessage title="Connecting" />;
 

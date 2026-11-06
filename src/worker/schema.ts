@@ -70,4 +70,18 @@ export function migrate(sql: SqlStorage) {
       INSERT INTO _sql_schema_migrations (id) VALUES (4);
     `);
   }
+
+  if (version < 5) {
+    sql.exec(`
+      ALTER TABLE room ADD COLUMN projector_key TEXT;
+      ALTER TABLE room ADD COLUMN revealed_yes INTEGER;
+      ALTER TABLE room ADD COLUMN revealed_no INTEGER;
+      UPDATE room SET projector_key = lower(hex(randomblob(24)));
+      UPDATE room SET
+        revealed_yes = (SELECT COUNT(*) FROM vote WHERE pnm_id = revealed_pnm_id AND value = 'yes'),
+        revealed_no = (SELECT COUNT(*) FROM vote WHERE pnm_id = revealed_pnm_id AND value = 'no')
+      WHERE revealed_pnm_id IS NOT NULL;
+      INSERT INTO _sql_schema_migrations (id) VALUES (5);
+    `);
+  }
 }

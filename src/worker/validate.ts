@@ -47,7 +47,10 @@ function parsePnm(value: unknown): PnmInput | null {
 }
 
 function parseJoin(fields: Record<string, unknown>): ClientMessage | null {
-  if (fields.as === "projector") return { type: "join", as: "projector" };
+  if (fields.as === "projector") {
+    const projectorKey = shortText(fields.projectorKey, MAX_ID * 2);
+    return projectorKey === null ? null : { type: "join", as: "projector", projectorKey };
+  }
   if (fields.as === "host") {
     const hostKey = shortText(fields.hostKey, MAX_ID * 2);
     return hostKey === null ? null : { type: "join", as: "host", hostKey };
