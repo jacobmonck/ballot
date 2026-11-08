@@ -10,7 +10,9 @@ export function PnmCard({ pnm }: { pnm: PnmInput }) {
         url={pnm.photoUrl}
         className="aspect-square w-full rounded-[1.75rem] text-7xl shadow-[0_18px_44px_rgb(0_0_0/0.35)]"
       />
+
       <h1 className="type-display mt-5">{pnm.name}</h1>
+
       {pnm.answers.length === 0 ? (
         <p className="mt-3 text-chalk">No form answers for this PNM.</p>
       ) : (

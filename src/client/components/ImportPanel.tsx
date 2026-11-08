@@ -4,6 +4,7 @@ import type { Pnm, PnmInput } from "../../shared/protocol";
 import { PnmCard } from "./PnmCard";
 import { PnmPhoto } from "./PnmPhoto";
 
+// What a CSV column can hold, as the host picks it.
 const KINDS: { value: ColumnKind; label: string }[] = [
   { value: "name", label: "Name" },
   { value: "photo", label: "Photo URL" },
@@ -11,17 +12,24 @@ const KINDS: { value: ColumnKind; label: string }[] = [
   { value: "ignore", label: "Ignore" },
 ];
 
+// Pasting form responses, matching each column to what it holds, and previewing the first PNM.
+// Once PNMs are in, it shows a photo check instead, with a way to replace the list.
 export function ImportPanel({ pnms, onImport }: { pnms: Pnm[]; onImport: (pnms: PnmInput[]) => void }) {
   const [text, setText] = useState("");
   const [replacing, setReplacing] = useState(false);
   const showForm = pnms.length === 0 || replacing;
+
   const rows = useMemo(() => parseCsv(text), [text]);
   const headers = useMemo(() => rows[0] ?? [], [rows]);
+
+  // Columns are guessed from their headers. The host's own picks are keyed by position and header,
+  // so pasting a different sheet starts from fresh guesses.
   const [overrides, setOverrides] = useState<Record<string, ColumnKind>>({});
   const columns = useMemo(
     () => headers.map((header, index) => overrides[`${index}:${header}`] ?? guessColumn(header)),
     [headers, overrides],
   );
+
   const parsed = useMemo(() => buildPnms(rows, columns), [rows, columns]);
   const hasPhotoColumn = columns.includes("photo");
 
@@ -38,6 +46,7 @@ export function ImportPanel({ pnms, onImport }: { pnms: Pnm[]; onImport: (pnms: 
               onChange={(event) => setText(event.target.value)}
             />
           </label>
+
           <p className="type-caption mt-2 text-chalk">
             Share Google Drive photos with Anyone with the link until they've been saved here.
           </p>
@@ -78,6 +87,7 @@ export function ImportPanel({ pnms, onImport }: { pnms: Pnm[]; onImport: (pnms: 
           ) : (
             <p className="mt-4 text-alert">Choose a Name column to see PNMs.</p>
           )}
+
           {!hasPhotoColumn && <p className="mt-2 text-alert">No Photo URL column chosen. PNMs will show initials.</p>}
 
           <button
@@ -101,6 +111,7 @@ export function ImportPanel({ pnms, onImport }: { pnms: Pnm[]; onImport: (pnms: 
   );
 }
 
+// Every imported photo at a glance, so the host can spot any that didn't load before voting starts.
 function PhotoCheck({ pnms, replacing, onReplace }: { pnms: Pnm[]; replacing: boolean; onReplace: () => void }) {
   // By address, so a photo that failed stops counting once it has been saved somewhere that works.
   const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
@@ -114,11 +125,13 @@ function PhotoCheck({ pnms, replacing, onReplace }: { pnms: Pnm[]; replacing: bo
           {replacing ? "Keep this list" : "Replace list"}
         </button>
       </div>
+
       <p className={`mt-0.5 ${problems > 0 ? "text-alert" : "text-chalk"}`}>
         {problems > 0
           ? `${problems} without a working photo. They'll show initials.`
           : "Check that every photo loaded."}
       </p>
+
       <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-3">
         {pnms.map((pnm) => (
           <li key={pnm.id} className="type-caption">

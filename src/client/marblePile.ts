@@ -1,3 +1,8 @@
+import type { Point, Side } from "./pegboard";
+
+export type { Side };
+
+// Physics, in screen pixels and seconds.
 const GRAVITY = 2_200;
 const BOUNCE = 0.3;
 const WALL_BOUNCE = 0.4;
@@ -5,15 +10,15 @@ const ROLL_FRICTION = 0.97;
 const AIR_DRAG = 0.9995;
 const SUBSTEPS = 2;
 const SOLVER_PASSES = 3;
+
 const SPAWN_GAP_S = 0.035;
 const FADE_PER_S = 3;
+// Movement below this many pixels in a frame counts as still.
 const QUIET_PIXELS = 0.3;
 // How fast a falling marble must meet the pile for the hit to count as landing on it.
 const LANDING_SPEED = 120;
-
-import type { Point, Side } from "./pegboard";
-
-export type { Side };
+// Spreads grid cells across columns in one number key. Far wider than any screen has cells.
+const GRID_COLUMN_KEY = 8192;
 
 export interface Marble {
   x: number;
@@ -42,14 +47,17 @@ export class MarblePile {
   private spawnClock = 0;
   private landings = 0;
 
+  // The pile fills the whole screen, so it follows the window's size.
   resize(width: number, height: number) {
     this.width = width;
     this.height = height;
   }
 
+  // How many marbles the pile should hold. Extra ones fade away from the top of the pile.
   setTarget(count: number, radius: number) {
     this.target = count;
     this.radius = radius;
+
     const settled = this.marbles.filter((marble) => !marble.draining && !marble.leaving);
     settled.sort((a, b) => a.y - b.y);
     for (const marble of settled.slice(0, Math.max(0, settled.length - count))) marble.leaving = true;
@@ -65,6 +73,7 @@ export class MarblePile {
     const live = this.marbles.filter((marble) => !marble.draining && !marble.leaving);
     this.marbles = this.marbles.filter((marble) => marble.draining || marble.leaving);
     this.target = 0;
+
     return live.map(({ x, y }) => ({ x, y }));
   }
 
@@ -87,6 +96,7 @@ export class MarblePile {
     }
   }
 
+  // Somewhere across the top of the screen, keeping the whole marble in view.
   private randomX(radius: number) {
     return radius + Math.random() * (this.width - radius * 2);
   }
@@ -98,12 +108,15 @@ export class MarblePile {
     return landings;
   }
 
+  // Counts a marble's first landing, which is when the projector clacks.
   private land(marble: Marble) {
     if (marble.landed || marble.draining) return;
+
     marble.landed = true;
     this.landings++;
   }
 
+  // Throws the pile up a little, for the moment every vote is in.
   hop() {
     for (const marble of this.marbles) {
       if (marble.draining) continue;
@@ -112,15 +125,19 @@ export class MarblePile {
     }
   }
 
+  // Drops new marbles in from above, one every SPAWN_GAP_S, until the pile reaches its target.
   private spawn(dt: number) {
     this.spawnClock += dt;
+
     while (this.spawnClock >= SPAWN_GAP_S) {
       this.spawnClock -= SPAWN_GAP_S;
+
       const live = this.marbles.filter((marble) => !marble.draining && !marble.leaving).length;
       if (live >= this.target) {
         this.spawnClock = 0;
         return;
       }
+
       const { radius } = this;
       this.marbles.push({
         x: this.randomX(radius),
@@ -138,12 +155,15 @@ export class MarblePile {
     }
   }
 
+  // Pushes overlapping marbles apart and bounces them off each other. A grid of cells one marble
+  // wide means each marble only checks its neighbors, not the whole pile.
   private collide() {
     const { marbles } = this;
     const cell = Math.max(this.radius, ...marbles.map(({ radius }) => radius)) * 2;
+
     const grid = new Map<number, number[]>();
     marbles.forEach(({ x, y }, index) => {
-      const key = (Math.floor(x / cell) + 1) * 8192 + Math.floor(y / cell) + 1;
+      const key = (Math.floor(x / cell) + 1) * GRID_COLUMN_KEY + Math.floor(y / cell) + 1;
       const bucket = grid.get(key);
       if (bucket) bucket.push(index);
       else grid.set(key, [index]);
@@ -152,29 +172,39 @@ export class MarblePile {
     marbles.forEach((a, index) => {
       const column = Math.floor(a.x / cell) + 1;
       const row = Math.floor(a.y / cell) + 1;
+
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
-          for (const other of grid.get((column + dx) * 8192 + row + dy) ?? []) {
+          for (const other of grid.get((column + dx) * GRID_COLUMN_KEY + row + dy) ?? []) {
+            // Each pair once, and a draining pile falls through the new one rather than landing on it.
             if (other <= index) continue;
             const b = marbles[other]!;
             if (a.draining !== b.draining) continue;
+
             const nx = b.x - a.x;
             const ny = b.y - a.y;
             const reach = a.radius + b.radius;
             const distanceSquared = nx * nx + ny * ny;
             if (distanceSquared >= reach * reach || distanceSquared === 0) continue;
+
+            // Split the overlap evenly between the two.
             const distance = Math.sqrt(distanceSquared);
             const push = (reach - distance) / 2 / distance;
             a.x -= nx * push;
             a.y -= ny * push;
             b.x += nx * push;
             b.y += ny * push;
+
+            // Only marbles moving toward each other bounce.
             const approach = ((b.vx - a.vx) * nx + (b.vy - a.vy) * ny) / distance;
             if (approach >= 0) continue;
+
+            // A falling marble hitting the pile hard enough has landed on it.
             if (-approach > LANDING_SPEED) {
               if (a.landed) this.land(b);
               if (b.landed) this.land(a);
             }
+
             const impulse = (-(1 + BOUNCE) * approach) / 2 / distance;
             a.vx -= nx * impulse;
             a.vy -= ny * impulse;
@@ -186,10 +216,13 @@ export class MarblePile {
     });
   }
 
+  // Keeps marbles inside the side walls and on the floor. A draining marble falls through the floor.
   private contain() {
     const { width, height } = this;
+
     for (const marble of this.marbles) {
       const { radius } = marble;
+
       if (marble.x < radius) {
         marble.x = radius;
         marble.vx = Math.abs(marble.vx) * WALL_BOUNCE;
@@ -197,6 +230,7 @@ export class MarblePile {
         marble.x = width - radius;
         marble.vx = -Math.abs(marble.vx) * WALL_BOUNCE;
       }
+
       if (!marble.draining && marble.y > height - radius) {
         this.land(marble);
         marble.y = height - radius;
@@ -209,10 +243,12 @@ export class MarblePile {
   // Returns true while anything is still visibly moving.
   step(dt: number) {
     this.spawn(dt);
+
     const before = this.marbles.map(({ x, y }) => [x, y] as const);
     const count = this.marbles.length;
     const substep = dt / SUBSTEPS;
 
+    // Small steps with a few solver passes each keep a tall pile from sinking into itself.
     for (let pass = 0; pass < SUBSTEPS; pass++) {
       for (const marble of this.marbles) {
         marble.vy += GRAVITY * substep;
@@ -221,12 +257,14 @@ export class MarblePile {
         marble.x += marble.vx * substep;
         marble.y += marble.vy * substep;
       }
+
       for (let solve = 0; solve < SOLVER_PASSES; solve++) {
         this.collide();
         this.contain();
       }
     }
 
+    // Compares against where each marble started the frame. New spawns aren't in `before` yet.
     let moving = this.marbles.length < this.target;
     for (let index = 0; index < count; index++) {
       const marble = this.marbles[index]!;
@@ -235,6 +273,7 @@ export class MarblePile {
       if (marble.leaving) marble.alpha -= FADE_PER_S * dt;
     }
 
+    // Faded marbles and ones that fell off the bottom are gone for good.
     this.marbles = this.marbles.filter((marble) => marble.alpha > 0 && marble.y < this.height + marble.radius * 2);
     return moving || this.marbles.some(({ draining, leaving }) => draining || leaving);
   }

@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+// The first letters of the first two words of a name.
 function initials(name: string) {
   return name
     .split(/\s+/)
@@ -33,6 +34,7 @@ export function PnmPhoto({
       </div>
     );
   }
+
   return (
     <img
       src={url}

@@ -37,12 +37,14 @@ export function Host() {
       />
     );
   }
+
   if (!room?.hostOnly) return <CenteredMessage title="Connecting" />;
 
   return (
     <>
       <ConnectionBanner connection={connection} />
       <Notice notice={notice} />
+
       {room.phase === "ended" && room.hostOnly.results ? (
         <Results
           code={room.code}
@@ -58,16 +60,20 @@ export function Host() {
   );
 }
 
+// Asks for the host key on a device that doesn't have it, or after the saved one was refused.
 function KeyPrompt({ error, onSubmit }: { error: string | null; onSubmit: (key: string) => void }) {
   const [key, setKey] = useState("");
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     onSubmit(key.trim());
   };
+
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6">
       <h1 className="type-display">Host this room</h1>
       <p className="mt-2 text-lg text-chalk">Paste the host key copied from the device that started the room.</p>
+
       <form className="mt-6" onSubmit={submit}>
         <input
           className="field"
@@ -77,11 +83,13 @@ function KeyPrompt({ error, onSubmit }: { error: string | null; onSubmit: (key: 
           autoComplete="off"
           required
         />
+
         {error && (
           <p role="alert" className="mt-2 text-alert">
             {error}
           </p>
         )}
+
         <button type="submit" className="btn btn-lg btn-primary mt-4 w-full">
           Take over as host
         </button>
@@ -90,21 +98,25 @@ function KeyPrompt({ error, onSubmit }: { error: string | null; onSubmit: (key: 
   );
 }
 
+// Everything before results: the header, the PNM list or setup, and the sidebar.
 function Panel({ room, send }: { room: Snapshot; send: Send }) {
   return (
     <div className="mx-auto max-w-6xl px-5 py-6 sm:px-8 sm:py-8">
       <RoomHeader room={room} send={send} />
+
       <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_21rem]">
         <div className="min-w-0 space-y-5">
           {room.hostOnly && <PhotoImport code={room.code} hostKey={room.hostOnly.hostKey} pnms={room.pnms} />}
           {room.phase === "setup" ? <Setup room={room} send={send} /> : <LiveList room={room} send={send} />}
         </div>
+
         <Sidebar room={room} send={send} />
       </div>
     </div>
   );
 }
 
+// The room code for brothers to join with, where voting is up to, and links to the other screens.
 function RoomHeader({ room, send }: { room: Snapshot; send: Send }) {
   // The key sits in the fragment, so it never reaches a server log or a Referer header.
   const projectorUrl = `${location.origin}/p/${room.code}#${room.hostOnly?.projectorKey}`;
@@ -124,6 +136,7 @@ function RoomHeader({ room, send }: { room: Snapshot; send: Send }) {
           <p className="text-chalk tabular-nums">{status}</p>
         </div>
       </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <a className="btn btn-secondary" href={projectorUrl} target="_blank" rel="noreferrer">
           Open projector view
@@ -149,9 +162,11 @@ function RoomHeader({ room, send }: { room: Snapshot; send: Send }) {
   );
 }
 
+// Before voting starts: a summary with a start button once PNMs are in, then the import panel.
 function Setup({ room, send }: { room: Snapshot; send: Send }) {
   const first = room.pnms[0];
   const brothers = room.members.length;
+
   return (
     <>
       {first && (
@@ -163,6 +178,7 @@ function Setup({ room, send }: { room: Snapshot; send: Send }) {
               {room.budgetIsDefault ? "No class size set." : `Class size ${room.yesBudget}.`}
             </p>
           </div>
+
           <button
             type="button"
             className="btn btn-lg btn-primary"
@@ -172,24 +188,28 @@ function Setup({ room, send }: { room: Snapshot; send: Send }) {
           </button>
         </section>
       )}
+
       <ImportPanel pnms={room.pnms} onImport={(pnms) => send({ type: "importPnms", pnms })} />
     </>
   );
 }
 
+// While voting: the PNM on screen with reveal and next buttons, then every PNM with live tallies.
 function LiveList({ room, send }: { room: Snapshot; send: Send }) {
+  // A revote only walks through the tied PNMs.
   const pnms = room.revote ? room.pnms.filter(({ id }) => room.revote?.pnmIds.includes(id)) : room.pnms;
   const focusIndex = pnms.findIndex(({ id }) => id === room.focusPnmId);
   const next = pnms[focusIndex + 1];
   const focused = pnms[focusIndex];
+  const revealed = !!focused && room.revealed?.pnmId === focused.id;
+
   const ballots = room.progress?.total ?? room.members.length;
   const tallies = room.hostOnly?.tallies ?? {};
   const waiting = room.progress ? room.progress.total - room.progress.voted : 0;
 
-  const revealed = !!focused && room.revealed?.pnmId === focused.id;
-
   const list = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion();
+  // Fades the bottom of the list while there are rows below it.
   const [moreBelow, setMoreBelow] = useState(false);
 
   const updateMoreBelow = () => {
@@ -202,6 +222,7 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
     const element = list.current;
     const row = element?.querySelector<HTMLElement>("[data-focus]");
     if (!element || !row) return;
+
     const top = row.offsetTop - (element.clientHeight - row.offsetHeight) / 2;
     element.scrollTo({ top, behavior: reducedMotion ? "auto" : "smooth" });
     updateMoreBelow();
@@ -218,6 +239,7 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
               className="size-24 shrink-0 rounded-[0.875rem] text-3xl"
             />
           )}
+
           <div className="min-w-0 flex-1">
             {room.revote && (
               <p className="type-headline text-brass">
@@ -225,15 +247,18 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
                 {room.revote.spots === 1 ? "spot" : "spots"}
               </p>
             )}
+
             <h1 className="type-display wrap-anywhere">{focused?.name}</h1>
             <p className="mt-1 text-chalk tabular-nums" aria-live="polite">
               Waiting on {waiting} of {ballots}
             </p>
+
             <div className="mt-3 max-w-xs">
               <ProgressBar value={ballots - waiting} max={ballots} label="Brothers who have voted" />
             </div>
           </div>
         </div>
+
         <div className="grid gap-2 sm:grid-cols-2">
           {focused && (
             <button
@@ -245,6 +270,7 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
               {revealed ? "Votes revealed" : "Reveal votes"}
             </button>
           )}
+
           {next && (
             <button
               type="button"
@@ -257,6 +283,7 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
         </div>
       </div>
 
+      {/* Every PNM with live counts. Only the host ever sees these. */}
       <motion.div
         ref={list}
         layoutScroll
@@ -273,10 +300,12 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
               <th className="w-16 sm:w-36" />
             </tr>
           </thead>
+
           <tbody>
             {pnms.map((pnm) => {
               const { yes, no } = tallies[pnm.id] ?? { yes: 0, no: 0 };
               const isFocus = pnm.id === room.focusPnmId;
+
               return (
                 <tr key={pnm.id} className="group relative h-11 tabular-nums" data-focus={isFocus || undefined}>
                   <td className="truncate pr-3 pl-4" title={pnm.name}>
@@ -321,6 +350,7 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
   );
 }
 
+// Who's in the room, the class size, and the host key.
 function Sidebar({ room, send }: { room: Snapshot; send: Send }) {
   return (
     <aside className="space-y-3 lg:sticky lg:top-8 lg:self-start">
@@ -331,6 +361,7 @@ function Sidebar({ room, send }: { room: Snapshot; send: Send }) {
   );
 }
 
+// The brothers in the room, with controls to close the room to new names and remove someone.
 function Members({ room, send }: { room: Snapshot; send: Send }) {
   return (
     <section className="panel p-5">
@@ -347,9 +378,11 @@ function Members({ room, send }: { room: Snapshot; send: Send }) {
           </button>
         )}
       </div>
+
       {room.joinLocked && (
         <p className="type-caption mt-1 text-brass">Closed. Brothers already here can still come back.</p>
       )}
+
       {room.members.length === 0 ? (
         <p className="mt-2 text-chalk">Names appear here as brothers join.</p>
       ) : (
@@ -372,8 +405,11 @@ function Members({ room, send }: { room: Snapshot; send: Send }) {
   );
 }
 
+// The class size, which sets both the cut line and how many Yes votes each brother gets.
 function BudgetSetting({ room, send }: { room: Snapshot; send: Send }) {
   const [draft, setDraft] = useState(String(room.yesBudget));
+
+  // Follows the server, so a change from another host device shows up here.
   useEffect(() => setDraft(String(room.yesBudget)), [room.yesBudget]);
 
   const apply = (event: FormEvent) => {
@@ -402,6 +438,7 @@ function BudgetSetting({ room, send }: { room: Snapshot; send: Send }) {
           </span>
         </label>
       </form>
+
       <p className="type-caption mt-2 text-chalk">
         {room.budgetIsDefault ? (
           "Not set: no cut line, and everyone can vote Yes on every PNM."
@@ -418,8 +455,10 @@ function BudgetSetting({ room, send }: { room: Snapshot; send: Send }) {
   );
 }
 
+// The host key behind a disclosure, so it can be copied to a second device.
 function HostKey({ hostKey }: { hostKey: string }) {
   const [copied, setCopied] = useState(false);
+
   return (
     <details className="panel group p-5">
       <summary className="type-headline flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
@@ -439,9 +478,11 @@ function HostKey({ hostKey }: { hostKey: string }) {
           />
         </svg>
       </summary>
+
       <p className="type-caption mt-2 text-chalk">
         Save this. If this device dies, paste it on another one to keep running the room.
       </p>
+
       <div className="mt-3 flex items-center gap-2">
         <code className="min-w-0 flex-1 truncate rounded-lg bg-black/25 px-2.5 py-2 text-sm">{hostKey}</code>
         <button

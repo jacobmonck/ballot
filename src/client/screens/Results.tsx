@@ -6,23 +6,28 @@ import { PnmPhoto } from "../components/PnmPhoto";
 import { settle } from "../feel";
 import { formatPercent, yesPercent } from "../percent";
 
+// Rows fade in one after another, but only the first REVEAL_LAST_STEP are staggered.
 const REVEAL_STEP_S = 0.035;
 const REVEAL_LAST_STEP = 14;
 const slowSettle = { ...settle, visualDuration: 0.8 };
 
+// Saves the ranked results as a CSV, one row per PNM in rank order.
 function download(code: string, results: ResultsData) {
   const rows: (string | number)[][] = [
     ["Rank", "Name", "Percent Yes", "Yes", "No", "No response", "Brothers", "Revotes"],
   ];
+
   results.rows.forEach((row, index) => {
     const revotes = row.revotes.map(({ yes, no }) => `${yes} Yes ${no} No`).join("; ");
     rows.push([index + 1, row.name, formatPercent(row.percent), row.yes, row.no, row.noResponse, row.total, revotes]);
   });
+
   const url = URL.createObjectURL(new Blob([toCsv(rows)], { type: "text/csv" }));
   const link = document.createElement("a");
   link.href = url;
   link.download = `voting-results-${code}.csv`;
   link.click();
+
   // Some browsers start the download after click() returns, so the URL has to outlive this call.
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
@@ -54,6 +59,7 @@ export function Results({
             {clearCount} of {rows.length} {tie ? "in so far" : "made the class"}
           </p>
         </div>
+
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn btn-secondary" onClick={() => download(code, results)}>
             Download CSV
@@ -83,6 +89,7 @@ export function Results({
             </h2>
             <p className="mt-1 text-chalk">{tiedNames.join(", ")}</p>
           </div>
+
           <button type="button" className="btn btn-lg btn-primary" onClick={onRevote}>
             Start revote
           </button>
@@ -107,9 +114,11 @@ export function Results({
   );
 }
 
+// One ranked PNM. Tapping it opens the full counts and any revote rounds.
 function Row({ row, rank, made, tied }: { row: ResultRow; rank: number; made: boolean; tied: boolean }) {
   const [open, setOpen] = useState(false);
   const latestRevote = row.revotes.at(-1);
+
   return (
     <motion.li
       initial={{ opacity: 0, y: 10 }}
@@ -125,7 +134,9 @@ function Row({ row, rank, made, tied }: { row: ResultRow; rank: number; made: bo
         <span className="w-7 shrink-0 text-right font-display text-lg font-semibold text-chalk tabular-nums">
           {rank}
         </span>
+
         <PnmPhoto name={row.name} url={row.photoUrl} className="size-11 shrink-0 rounded-full text-sm" />
+
         <span className="min-w-0 flex-1">
           <span className={`block truncate text-[1.0625rem] font-medium ${made || tied ? "" : "text-chalk"}`}>
             {row.name}
@@ -139,14 +150,18 @@ function Row({ row, rank, made, tied }: { row: ResultRow; rank: number; made: bo
             />
           </span>
         </span>
+
         {tied && <span className="type-caption text-brass">Tied</span>}
         {latestRevote && (
           <span className="type-caption text-chalk tabular-nums">Revote {formatPercent(yesPercent(latestRevote))}</span>
         )}
+
         <span className="w-[4.5rem] shrink-0 text-right font-display text-xl font-bold tabular-nums">
           {formatPercent(row.percent)}
         </span>
       </button>
+
+      {/* The full counts, behind a tap so the ranking stays easy to scan. */}
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
@@ -159,6 +174,7 @@ function Row({ row, rank, made, tied }: { row: ResultRow; rank: number; made: bo
             <p className="pb-1">
               {row.yes} Yes, {row.no} No, {row.noResponse} no response, out of {row.total} brothers
             </p>
+
             {row.revotes.map(({ yes, no }, round) => (
               <p key={round} className="pb-1">
                 Revote {round + 1}: {yes} Yes, {no} No

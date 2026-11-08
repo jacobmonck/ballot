@@ -1,5 +1,6 @@
 import type { ClientMessage, PnmInput, QA } from "../shared/protocol";
 
+// Size limits for everything a client can send.
 const MAX_NAME = 80;
 const MAX_ID = 64;
 const MAX_PNMS = 500;
@@ -11,24 +12,31 @@ const MAX_MESSAGE_CHARS = 16_000_000;
 // Stays well under the 2 MB limit on one Durable Object SQLite row.
 const MAX_ANSWERS_CHARS = 500_000;
 
+// Trimmed text between 1 and `max` characters, or null.
 function shortText(value: unknown, max: number): string | null {
   if (typeof value !== "string") return null;
   const text = value.trim();
+
   return text.length > 0 && text.length <= max ? text : null;
 }
 
+// A question must have text. An answer may be empty, since forms allow skipping.
 function parseQA(value: unknown): QA | null {
   if (typeof value !== "object" || value === null) return null;
+
   const { q, a } = value as Record<string, unknown>;
   const question = shortText(q, MAX_QUESTION);
   if (question === null || typeof a !== "string" || a.length > MAX_ANSWER) return null;
   return { q: question, a };
 }
 
+// Null means no photo, and undefined means the photo is invalid, which rejects the whole PNM.
 function parsePhotoUrl(value: unknown): string | null | undefined {
   if (value === null) return null;
+
   const text = shortText(value, MAX_URL);
   if (text === null || !URL.canParse(text)) return undefined;
+
   const { protocol } = new URL(text);
   // The page's CSP only loads https images.
   return protocol === "https:" ? text : undefined;
@@ -36,21 +44,25 @@ function parsePhotoUrl(value: unknown): string | null | undefined {
 
 function parsePnm(value: unknown): PnmInput | null {
   if (typeof value !== "object" || value === null) return null;
+
   const { name, photoUrl, answers } = value as Record<string, unknown>;
   const cleanName = shortText(name, MAX_NAME);
   const cleanPhoto = parsePhotoUrl(photoUrl);
   if (cleanName === null || cleanPhoto === undefined) return null;
   if (!Array.isArray(answers) || answers.length > MAX_ANSWERS) return null;
+
   const cleanAnswers: QA[] = [];
   for (const answer of answers) {
     const qa = parseQA(answer);
     if (qa === null) return null;
     cleanAnswers.push(qa);
   }
+
   if (JSON.stringify(cleanAnswers).length > MAX_ANSWERS_CHARS) return null;
   return { name: cleanName, photoUrl: cleanPhoto, answers: cleanAnswers };
 }
 
+// Each role joins with its own credential: a key for the host and projector, an id and name for a brother.
 function parseJoin(fields: Record<string, unknown>): ClientMessage | null {
   if (fields.as === "projector") {
     const projectorKey = shortText(fields.projectorKey, MAX_ID * 2);
@@ -71,6 +83,7 @@ function parseJoin(fields: Record<string, unknown>): ClientMessage | null {
 // Checks an untrusted socket message field by field. Anything malformed or oversized becomes null.
 export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | null {
   if (typeof raw !== "string" || raw.length > MAX_MESSAGE_CHARS) return null;
+
   let fields: unknown;
   try {
     fields = JSON.parse(raw);
@@ -78,6 +91,7 @@ export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | n
     return null;
   }
   if (typeof fields !== "object" || fields === null) return null;
+
   const message = fields as Record<string, unknown>;
 
   switch (message.type) {

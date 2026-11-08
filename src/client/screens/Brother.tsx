@@ -12,12 +12,14 @@ import { project, settle } from "../feel";
 import { memberIdentity } from "../storage";
 import { useRoom } from "../useRoom";
 
+// How long the ballot ignores taps after the PNM changes.
 const PNM_CHANGE_GUARD_MS = 700;
 const SWIPE_DISTANCE = 140;
 // How much the card follows the finger: 1:1-ish toward a neighbor, stiff at either end of the list.
 const FREE_ELASTIC = 0.7;
 const END_ELASTIC = 0.14;
 
+// A card slides in from the side it's coming from and out the other.
 const cardSlide = {
   enter: (direction: number) => ({ x: `${direction * 100}%`, opacity: 0.4 }),
   center: { x: 0, opacity: 1 },
@@ -42,6 +44,7 @@ export function Brother() {
     <>
       <ConnectionBanner connection={connection} />
       <Notice notice={notice} />
+
       {room.phase === "setup" && <Lobby room={room} />}
       {room.phase === "live" && <Ballot room={room} pendingVotes={pendingVotes} vote={vote} />}
       {room.phase === "ended" && (
@@ -51,17 +54,20 @@ export function Brother() {
   );
 }
 
+// Waiting for voting to start, with everyone who has joined so far.
 function Lobby({ room }: { room: Snapshot }) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-10">
       <h1 className="type-display">You're in</h1>
       <p className="mt-2 text-lg text-chalk">Voting starts when the host puts up the first PNM.</p>
+
       <h2 className="type-headline mt-8 mb-3">{room.members.length} in the room</h2>
       <MemberList members={room.members} />
     </main>
   );
 }
 
+// The PNM card with the vote buttons under it. Brothers can swipe back to earlier PNMs to change a vote.
 function Ballot({
   room,
   pendingVotes,
@@ -71,8 +77,10 @@ function Ballot({
   pendingVotes: Record<string, VoteValue | null>;
   vote: (pnmId: string, value: VoteValue | null) => void;
 }) {
+  // A PNM other than the one on screen, while a brother looks back through the list.
   const [browsingId, setBrowsingId] = useState<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
+  // True for a moment after the PNM changes, while the ballot ignores taps.
   const [settling, setSettling] = useState(false);
 
   // Every phone jumps to the PNM the host just put up.
@@ -87,6 +95,7 @@ function Ballot({
   useEffect(() => {
     window.scrollTo(0, 0);
     setSettling(true);
+
     const timer = setTimeout(() => setSettling(false), PNM_CHANGE_GUARD_MS);
     return () => clearTimeout(timer);
   }, [shownId]);
@@ -102,10 +111,13 @@ function Ballot({
 
   if (!pnm) return <CenteredMessage title="Waiting for the next PNM" />;
 
+  // A vote still on its way shows as cast, so the ballot doesn't flicker back while it sends.
   const sending = pnm.id in pendingVotes;
   const value = sending ? (pendingVotes[pnm.id] ?? undefined) : room.myVotes[pnm.id];
   const outOfYes = room.yesUsed >= room.yesBudget;
   const isFocus = pnm.id === room.focusPnmId;
+
+  // The PNMs a brother can swipe between: all of them so far, or only the tied ones in a revote.
   const ballot = room.revote ? room.pnms.filter(({ id }) => room.revote?.pnmIds.includes(id)) : room.pnms;
   const index = ballot.indexOf(pnm);
   const previous = ballot[index - 1];
@@ -125,6 +137,7 @@ function Ballot({
         </header>
 
         <main className="flex-1 overflow-x-clip px-4 pt-1 pb-6">
+          {/* Swiping the card left or right moves to the next or previous PNM. */}
           <AnimatePresence initial={false} mode="popLayout" custom={travel.current.direction}>
             <motion.div
               key={pnm.id}
@@ -159,6 +172,7 @@ function Ballot({
               Back to the current PNM
             </button>
           )}
+
           <VoteButtons
             key={pnm.id}
             value={value}
@@ -167,6 +181,7 @@ function Ballot({
             sending={sending}
             onVote={(choice) => vote(pnm.id, choice)}
           />
+
           <div className="mt-2">
             <BudgetMeter used={room.yesUsed} budget={room.yesBudget} isDefault={room.budgetIsDefault} />
             {outOfYes && value !== "yes" && !room.budgetIsDefault && (
@@ -176,10 +191,12 @@ function Ballot({
         </footer>
       </div>
 
+      {/* Every PNM so far with this brother's vote on each, to jump straight to one. */}
       <Sheet open={listOpen} title="All PNMs" onClose={() => setListOpen(false)}>
         <ul>
           {ballot.map((item) => {
             const myVote = room.myVotes[item.id];
+
             return (
               <li key={item.id}>
                 <button

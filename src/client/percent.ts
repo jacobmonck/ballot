@@ -5,6 +5,7 @@ export function yesPercent({ yes, no }: Tally) {
   return yes + no === 0 ? 0 : (yes / (yes + no)) * 100;
 }
 
+// Rounded to one decimal place, without a trailing ".0".
 export function formatPercent(percent: number) {
   return `${Number(percent.toFixed(1))}%`;
 }

@@ -4,6 +4,7 @@ import { flick } from "../feel";
 
 // Names in the room. With onKick, each gets a remove button and repeated names are flagged for the host.
 export function MemberList({ members, onKick }: { members: MemberInfo[]; onKick?: (member: MemberInfo) => void }) {
+  // Names are compared without case, so "jake" and "Jake" count as the same.
   const counts = new Map<string, number>();
   for (const { name } of members) {
     const key = name.toLowerCase();
@@ -15,6 +16,7 @@ export function MemberList({ members, onKick }: { members: MemberInfo[]; onKick?
       <AnimatePresence initial={false} mode="popLayout">
         {members.map((member) => {
           const duplicated = (counts.get(member.name.toLowerCase()) ?? 0) > 1;
+
           return (
             <motion.li
               layout

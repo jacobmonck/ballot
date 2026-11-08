@@ -28,6 +28,7 @@ export function Notice({ notice }: { notice: RoomState["notice"] }) {
 
   useEffect(() => {
     if (!notice) return;
+
     setVisibleId(notice.id);
     const timer = setTimeout(() => setVisibleId(null), 4000);
     return () => clearTimeout(timer);
@@ -63,7 +64,9 @@ export function CenteredMessage({ title, children }: { title: string; children?:
         <span className="ball-yes size-6 rounded-full" />
         <span className="ball-no size-6 rounded-full" />
       </div>
+
       <h1 className="type-display">{title}</h1>
+
       {children && <div className="mt-3 text-lg text-chalk">{children}</div>}
     </motion.main>
   );

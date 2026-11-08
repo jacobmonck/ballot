@@ -1,8 +1,9 @@
 import type { PnmInput, QA } from "./protocol";
 
+// What the host says a form column holds.
 export type ColumnKind = "name" | "photo" | "question" | "ignore";
 
-// Comma CSV from a downloaded form export, or tab-separated text copied straight out of Google Sheets.
+// The first separator outside quotes decides it. Comma CSV from a downloaded form export, or tab-separated text copied straight out of Google Sheets.
 function detectSeparator(text: string): "," | "\t" {
   let inQuotes = false;
   for (const char of text) {
@@ -17,6 +18,7 @@ function detectSeparator(text: string): "," | "\t" {
 export function parseCsv(input: string): string[][] {
   const text = input.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
   const separator = detectSeparator(text);
+
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -31,6 +33,8 @@ export function parseCsv(input: string): string[][] {
 
   for (let index = 0; index < text.length; index++) {
     const char = text[index]!;
+
+    // Inside quotes everything is text, and a doubled quote is one literal quote.
     if (inQuotes) {
       if (char !== '"') cell += char;
       else if (text[index + 1] === '"') {
@@ -44,10 +48,14 @@ export function parseCsv(input: string): string[][] {
     } else if (char === "\n") endRow();
     else cell += char;
   }
+
+  // The last row may not end with a newline.
   if (cell !== "" || row.length > 0) endRow();
+
   return rows;
 }
 
+// The file id in any of the Drive share link shapes Google Forms produces.
 const DRIVE_ID = /drive\.google\.com\/(?:file\/d\/|(?:open|uc)\?(?:.*&)?id=)([\w-]+)/;
 
 // Turns a Drive share link into its thumbnail address, which serves the image itself.
@@ -55,8 +63,10 @@ export function normalizePhotoUrl(raw: string): string | null {
   // File-upload questions list multiple files as a comma-separated cell.
   const first = raw.split(",")[0]!.trim();
   if (!/^https?:\/\//i.test(first)) return null;
+
   // The page only loads https images, so an http link would never show.
   const url = first.replace(/^http:/i, "https:");
+
   const driveId = DRIVE_ID.exec(url)?.[1];
   return driveId ? `https://drive.google.com/thumbnail?id=${driveId}&sz=w800` : url;
 }
@@ -69,8 +79,11 @@ export function isDrivePhoto(url: string): boolean {
 // A first guess at each form column, which the host can change before importing.
 export function guessColumn(header: string): ColumnKind {
   const text = header.trim();
+
+  // Contact details and form bookkeeping aren't for brothers to read.
   if (!text || /^(timestamp|score)$/i.test(text) || /e-?mail|phone/i.test(text)) return "ignore";
   if (/photo|picture|image|headshot|selfie/i.test(text)) return "photo";
+
   // Short enough to be a label, and not the imperative "Name three things...".
   if (/\bname\b/i.test(text) && text.length <= 30 && !/^name\s+\w/i.test(text)) return "name";
   return "question";
@@ -80,6 +93,7 @@ export function guessColumn(header: string): ColumnKind {
 export function buildPnms(rows: string[][], columns: ColumnKind[]): PnmInput[] {
   const [headers, ...body] = rows;
   if (!headers) return [];
+
   const pnms: PnmInput[] = [];
 
   for (const row of body) {
@@ -96,6 +110,7 @@ export function buildPnms(rows: string[][], columns: ColumnKind[]): PnmInput[] {
 
     if (nameParts.length > 0) pnms.push({ name: nameParts.join(" "), photoUrl, answers });
   }
+
   return pnms;
 }
 
@@ -103,8 +118,10 @@ export function buildPnms(rows: string[][], columns: ColumnKind[]): PnmInput[] {
 export function toCsv(rows: (string | number)[][]): string {
   const cell = (value: string | number) => {
     if (typeof value === "number") return String(value);
+
     const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
     return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe;
   };
+
   return rows.map((row) => row.map(cell).join(",")).join("\r\n") + "\r\n";
 }

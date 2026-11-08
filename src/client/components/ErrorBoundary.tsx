@@ -11,6 +11,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { failed: 
 
   override render() {
     if (!this.state.failed) return this.props.children;
+
     return (
       <CenteredMessage title="Something went wrong">
         <p>Your saved votes are safe.</p>

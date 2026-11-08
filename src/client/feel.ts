@@ -10,6 +10,7 @@ export function project(velocity: number, decelerationRate = 0.998) {
   return ((velocity / 1000) * decelerationRate) / (1 - decelerationRate);
 }
 
+// In pixels, upward.
 const FLICK_DISTANCE = 120;
 const FLICK_MIN_DRAG = 12;
 

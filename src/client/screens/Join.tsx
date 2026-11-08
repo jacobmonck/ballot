@@ -15,10 +15,12 @@ export function Join() {
   const [busy, setBusy] = useState(false);
   const [codeFocused, setCodeFocused] = useState(false);
 
+  // Checks the room exists before leaving this page, so a typo gets a clear message here.
   const join = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
     setBusy(true);
+
     try {
       const response = await fetch(`/api/rooms/${encodeURIComponent(code)}`);
       if (response.status === 429) {
@@ -29,6 +31,7 @@ export function Join() {
         setError(`No room has the code ${code}. Check the code on the screen.`);
         return;
       }
+
       saveName(code, name.trim());
       navigate(`/r/${code}`);
     } catch {
@@ -38,9 +41,11 @@ export function Join() {
     }
   };
 
+  // Creates a room and saves its host key on this device before opening the host screen.
   const startRoom = async () => {
     setError(null);
     setBusy(true);
+
     try {
       const response = await fetch("/api/rooms", { method: "POST" });
       if (response.status === 429) {
@@ -48,6 +53,7 @@ export function Join() {
         return;
       }
       if (!response.ok) throw new Error(String(response.status));
+
       const room = (await response.json()) as { code: string; hostKey: string };
       saveHostKey(room.code, room.hostKey);
       navigate(`/host/${room.code}`);
@@ -71,12 +77,14 @@ export function Join() {
           />
         ))}
       </div>
+
       <h1 className="font-display text-[3.75rem] leading-none font-bold tracking-[-0.03em]">Ballot</h1>
       <p className="mt-3 text-lg text-chalk">Enter the room code on the screen and your name.</p>
 
       <form className="mt-8 space-y-5" onSubmit={join}>
         <label className="type-headline block">
           Room code
+          {/* A hidden input does the typing. The cells show one letter each, like a one-time code. */}
           <div className="relative mt-2">
             <input
               className="absolute inset-0 size-full text-base uppercase caret-transparent opacity-0"
@@ -91,6 +99,7 @@ export function Join() {
               spellCheck={false}
               required
             />
+
             <div className="pointer-events-none grid grid-cols-6 gap-1.5" aria-hidden="true">
               {Array.from({ length: ROOM_CODE_LENGTH }, (_, index) => (
                 <span
@@ -104,6 +113,7 @@ export function Join() {
             </div>
           </div>
         </label>
+
         <label className="type-headline block">
           Your name
           <input
@@ -115,6 +125,7 @@ export function Join() {
             required
           />
         </label>
+
         {error && (
           <motion.p
             role="alert"
@@ -126,6 +137,7 @@ export function Join() {
             {error}
           </motion.p>
         )}
+
         <button
           type="submit"
           disabled={busy || code.length !== ROOM_CODE_LENGTH || !name.trim()}
@@ -139,6 +151,7 @@ export function Join() {
         <button type="button" disabled={busy} className="link" onClick={startRoom}>
           Start a new room
         </button>
+
         {code.length === ROOM_CODE_LENGTH && (
           <button type="button" className="link" onClick={() => navigate(`/host/${code}`)}>
             Host this room

@@ -14,9 +14,14 @@ import { watchReveal } from "../revealWatch";
 import { sound } from "../sound";
 import { type Connection, useRoom } from "../useRoom";
 
+// Lobby
 const LOBBY_MIN_CAPACITY = 40;
 const LOBBY_NAMES_SHOWN = 28;
+
+// Reveal
 const REVEAL_COUNT_S = 0.9;
+
+// Finale: the class walks in one at a time, then takes their seats on the wall.
 const FINALE_INTRO_MS = 2600;
 const FINALE_MAX_STEP_MS = 3200;
 const FINALE_TOTAL_MS = 75_000;
@@ -43,6 +48,7 @@ export function Projector() {
   );
   const { room, connection, refusal } = useRoom(code, join);
   const reducedMotion = useReducedMotion();
+
   const focusId = room?.focusPnmId ?? null;
   const revealedFocus = room?.revealed && room.revealed.pnmId === focusId ? room.revealed : null;
   // Only a reveal this screen watched happen plays the drop. One found on load shows finished.
@@ -53,6 +59,7 @@ export function Projector() {
     () => revealedFocus && { tally: { yes: revealedFocus.yes, no: revealedFocus.no }, live },
     [revealedFocus, live],
   );
+
   // The reveal whose drop has finished. A later reveal of the same PNM is a new object, so it waits again.
   const [dropDoneFor, setDropDoneFor] = useState<Revealed | null>(null);
   const votesCast = revealedFocus ? revealedFocus.yes + revealedFocus.no : 0;
@@ -93,6 +100,7 @@ export function Projector() {
     );
   }
 
+  // A PNM is on screen: either still being voted on, or revealed.
   const voted = room.progress?.voted ?? 0;
   const total = room.progress?.total ?? 0;
   const allIn = total > 0 && voted >= total;
@@ -144,6 +152,7 @@ export function Projector() {
   );
 }
 
+// The backdrop every scene shares: the aurora, a glow that rises as votes come in, and the marble pit.
 function Stage({
   scene,
   count,
@@ -197,12 +206,15 @@ function Stage({
 // from the back of the room, so the seats hold that size and the wall scrolls instead.
 function seatLayout(count: number, shape: number, { width, height, minSeat }: typeof SEATS_WHEN_DONE) {
   const heightInVw = height * shape;
+
+  // Tries every column count and keeps the one that gives the biggest seat.
   let best = { columns: 1, seat: 0 };
   for (let columns = 1; columns <= count; columns++) {
     const rows = Math.ceil(count / columns);
     const seat = Math.min(SEAT_MAX_VW, (width / columns) * SEAT_SHARE_OF_TILE, heightInVw / rows - SEAT_LABEL_VW);
     if (seat > best.seat) best = { columns, seat };
   }
+
   if (best.seat >= minSeat) return best;
   return { columns: Math.floor((width * SEAT_SHARE_OF_TILE) / minSeat), seat: minSeat };
 }
@@ -210,11 +222,13 @@ function seatLayout(count: number, shape: number, { width, height, minSeat }: ty
 // Height over width of the screen, kept current for a projector that goes full screen mid-reveal.
 function useScreenShape() {
   const [shape, setShape] = useState(() => window.innerHeight / window.innerWidth);
+
   useEffect(() => {
     const update = () => setShape(window.innerHeight / window.innerWidth);
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+
   return shape;
 }
 
@@ -224,12 +238,15 @@ function useCreditsDrift(wall: RefObject<HTMLDivElement | null>, active: boolean
   useEffect(() => {
     const element = wall.current;
     if (!element || !active) return;
+
     let timer: ReturnType<typeof setTimeout>;
     let controls: ReturnType<typeof animate> | undefined;
 
+    // Scrolls to one end, holds there, then heads back the other way.
     const drift = (down: boolean) => {
       const room = element.scrollHeight - element.clientHeight;
       if (room <= 1) return;
+
       const pixelsPerSecond = (window.innerWidth * DRIFT_VW_PER_S) / 100;
       controls = animate(element.scrollTop, down ? room : 0, {
         duration: room / pixelsPerSecond,
@@ -242,6 +259,7 @@ function useCreditsDrift(wall: RefObject<HTMLDivElement | null>, active: boolean
         },
       });
     };
+
     const stop = () => {
       clearTimeout(timer);
       controls?.stop();
@@ -251,6 +269,7 @@ function useCreditsDrift(wall: RefObject<HTMLDivElement | null>, active: boolean
     timer = setTimeout(() => drift(true), DRIFT_HOLD_MS);
     element.addEventListener("wheel", stop, { passive: true });
     element.addEventListener("pointerdown", stop);
+
     return () => {
       stop();
       element.removeEventListener("wheel", stop);
@@ -259,13 +278,16 @@ function useCreditsDrift(wall: RefObject<HTMLDivElement | null>, active: boolean
   }, [wall, active]);
 }
 
+// The class reveal: an intro, each new member in the spotlight before taking a seat, then the full wall.
 function Finale({ members, connection }: { members: ClassMember[]; connection: Connection }) {
   const reducedMotion = useReducedMotion();
   const total = members.length;
+
   // 0 is the intro, 1 to total put that member in the spotlight, and total + 1 is the full class.
   const [step, setStep] = useState(reducedMotion ? total + 1 : 0);
   const done = step > total;
   const current = done || step === 0 ? null : members[step - 1]!;
+
   const area = done ? SEATS_WHEN_DONE : SEATS_WHILE_RUNNING;
   const { columns, seat } = seatLayout(total, useScreenShape(), area);
   const wall = useRef<HTMLDivElement>(null);
@@ -276,16 +298,19 @@ function Finale({ members, connection }: { members: ClassMember[]; connection: C
     const element = wall.current;
     const target = element?.querySelector<HTMLElement>(`[data-seat="${step - 1}"]`);
     if (!element || !target || done) return;
+
     const top = target.offsetTop - (element.clientHeight - target.offsetHeight) / 2;
     element.scrollTo({ top, behavior: reducedMotion ? "auto" : "smooth" });
   }, [step, done, reducedMotion]);
 
+  // Steps through the class on a timer, giving a big class less time per member.
   useEffect(() => {
     if (reducedMotion) {
       setStep(total + 1);
       return;
     }
     if (done) return;
+
     const pause = step === 0 ? FINALE_INTRO_MS : Math.min(FINALE_MAX_STEP_MS, FINALE_TOTAL_MS / total);
     const timer = setTimeout(() => setStep(step + 1), pause);
     return () => clearTimeout(timer);
@@ -316,7 +341,9 @@ function Finale({ members, connection }: { members: ClassMember[]; connection: C
             The new class
           </motion.h1>
         )}
+
         <div className="flex items-center justify-center gap-[3vw]">
+          {/* The spotlight, beside the wall until everyone is seated. */}
           {!done && (
             <div className="relative h-[80vh] min-w-0 flex-1">
               <AnimatePresence initial={false}>
@@ -330,6 +357,7 @@ function Finale({ members, connection }: { members: ClassMember[]; connection: C
               </AnimatePresence>
             </div>
           )}
+
           <motion.div
             ref={wall}
             layoutScroll
@@ -358,6 +386,7 @@ function Finale({ members, connection }: { members: ClassMember[]; connection: C
   );
 }
 
+// The title card before the first member walks in.
 function FinaleIntro() {
   return (
     <motion.h1
@@ -371,6 +400,7 @@ function FinaleIntro() {
   );
 }
 
+// One new member in the spotlight. Their photo shares a layout id with their seat, so it flies there next.
 function Inductee({ member, place }: { member: ClassMember; place: string }) {
   return (
     <>
@@ -383,6 +413,7 @@ function Inductee({ member, place }: { member: ClassMember; place: string }) {
       >
         <PnmPhoto name={member.name} url={member.photoUrl} className="size-full" />
       </motion.div>
+
       <motion.p
         className="mt-[3vh] max-w-full font-display text-[4.5vw] leading-[1.05] font-bold tracking-[-0.03em] wrap-anywhere"
         initial={{ opacity: 0, y: "0.4em" }}
@@ -391,11 +422,13 @@ function Inductee({ member, place }: { member: ClassMember; place: string }) {
       >
         {member.name}
       </motion.p>
+
       <p className="mt-[1vh] text-[1.8vw] text-chalk tabular-nums">{place}</p>
     </>
   );
 }
 
+// One place on the wall: an empty dashed circle until its member arrives.
 function Seat({
   index,
   member,
@@ -419,6 +452,8 @@ function Seat({
         ) : (
           <div className="size-full rounded-full border border-dashed border-ivory/20" />
         )}
+
+        {/* A ring that ripples across the wall once the class is complete. */}
         {rippleDelay !== null && (
           <motion.span
             className="absolute inset-0 rounded-full border-2 border-brass"
@@ -428,6 +463,7 @@ function Seat({
           />
         )}
       </div>
+
       <motion.p
         className="mt-[0.4vw] line-clamp-2 w-full px-[0.3vw] text-center leading-tight font-medium wrap-anywhere"
         style={{ fontSize: `${Math.max(1.15, size * 0.14)}vw` }}
@@ -441,6 +477,7 @@ function Seat({
   );
 }
 
+// Before voting starts: where to join, the room code, and the newest names to arrive.
 function Lobby({ room }: { room: Snapshot }) {
   const joinHost = useMemo(() => location.host, []);
   const newestFirst = room.members.slice(-LOBBY_NAMES_SHOWN).reverse();
@@ -448,6 +485,7 @@ function Lobby({ room }: { room: Snapshot }) {
   return (
     <main className="flex min-h-dvh flex-col justify-center overflow-hidden px-[6vw] pb-[8vh]">
       <p className="text-[2.5vw] text-chalk">Join at {joinHost}</p>
+
       <p className="type-code flex text-[17vw]" aria-label={room.code}>
         {[...room.code].map((letter, index) => (
           <motion.span
@@ -461,7 +499,9 @@ function Lobby({ room }: { room: Snapshot }) {
           </motion.span>
         ))}
       </p>
+
       <p className="type-headline mt-[2vw] text-[2vw] tabular-nums">{room.members.length} in the room</p>
+
       <div className="mt-[1vw] max-h-[9.7em] overflow-hidden text-[1.6vw]">
         <MemberList members={newestFirst} />
       </div>
@@ -469,6 +509,7 @@ function Lobby({ room }: { room: Snapshot }) {
   );
 }
 
+// One PNM up for a vote: their photo, their name, and how many brothers have voted so far.
 function Spotlight({
   pnm,
   place,
@@ -502,6 +543,7 @@ function Spotlight({
         <div className="absolute inset-0 scale-110 opacity-60 blur-[4vw]" aria-hidden="true">
           <PnmPhoto name={pnm.name} url={pnm.photoUrl} className="size-full rounded-[2.5vw] text-transparent" />
         </div>
+
         <PnmPhoto
           name={pnm.name}
           url={pnm.photoUrl}
@@ -511,6 +553,8 @@ function Spotlight({
 
       <div className="min-w-0 flex-1">
         <p className="text-[2vw] text-chalk tabular-nums">{place}</p>
+
+        {/* Each word of the name rises into place, one after another. */}
         <h1 className="font-display text-[7vw] leading-[1.02] font-bold tracking-[-0.03em]">
           {pnm.name.split(/\s+/).map((word, index) => (
             <span key={index} className="inline-block overflow-hidden pr-[0.24em] pb-[0.12em] align-top last:pr-0">
@@ -545,6 +589,7 @@ function Spotlight({
               </motion.span>
               of {total} voted
             </p>
+
             <div className="mt-[1.25vw] max-w-[34vw]">
               <ProgressBar value={voted} max={total} label="Brothers who have voted" className="h-[0.55vw]" />
             </div>
@@ -586,6 +631,7 @@ function RevealResult({
   done: boolean;
 }) {
   const blank = total - tally.yes - tally.no;
+
   return (
     <motion.div
       className="relative min-h-dvh"
@@ -595,6 +641,7 @@ function RevealResult({
       transition={settle}
     >
       <p className="absolute top-[3vh] left-[3vw] text-[2vw] text-chalk tabular-nums">{place}</p>
+
       <div aria-live="polite">
         <AnimatePresence>
           {done && (
@@ -608,6 +655,7 @@ function RevealResult({
                 url={pnm.photoUrl}
                 className="aspect-square h-[30vh] shrink-0 rounded-[2vw] text-[9vh] shadow-[0_2vw_4vw_rgb(0_0_0/0.45)]"
               />
+
               <div className="min-w-0">
                 <h1 className="font-display text-[4vw] leading-[1.05] font-bold tracking-[-0.03em] wrap-anywhere">
                   {pnm.name}
@@ -628,19 +676,23 @@ function RevealResult({
   );
 }
 
+// The revealed counts, shown under the name when there's no pegboard drop to watch.
 function Verdict({ tally, total }: { tally: Tally; total: number }) {
   const blank = total - tally.yes - tally.no;
+
   return (
     <div className="mt-[2.5vw]" aria-live="polite">
       <div className="flex items-center gap-[4vw]">
         <VerdictSide label="Yes" ball="ball-yes" value={tally.yes} />
         <VerdictSide label="No" ball="ball-no" value={tally.no} />
       </div>
+
       {blank > 0 && <p className="mt-[1.25vw] text-[1.8vw] text-chalk tabular-nums">{blank} didn't vote</p>}
     </div>
   );
 }
 
+// One side of the verdict: a marble, its count, and Yes or No.
 function VerdictSide({ label, ball, value }: { label: string; ball: string; value: number }) {
   return (
     <motion.div
@@ -658,6 +710,7 @@ function VerdictSide({ label, ball, value }: { label: string; ball: string; valu
   );
 }
 
+// Counts up from zero to the result, or shows it straight away with reduced motion.
 function CountUp({ to }: { to: number }) {
   const reducedMotion = useReducedMotion();
   const [shown, setShown] = useState(reducedMotion ? to : 0);
@@ -667,6 +720,7 @@ function CountUp({ to }: { to: number }) {
       setShown(to);
       return;
     }
+
     const controls = animate(0, to, {
       duration: REVEAL_COUNT_S,
       ease: "easeOut",

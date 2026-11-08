@@ -4,17 +4,20 @@ export type VoteValue = "yes" | "no";
 export type Phase = "setup" | "live" | "ended";
 export type Role = "brother" | "host" | "projector";
 
+// One form question and a PNM's answer to it.
 export interface QA {
   q: string;
   a: string;
 }
 
+// A PNM as the host imports them.
 export interface PnmInput {
   name: string;
   photoUrl: string | null;
   answers: QA[];
 }
 
+// A stored PNM. `ordinal` is their place in interview order, starting at 1.
 export interface Pnm extends PnmInput {
   id: string;
   ordinal: number;
@@ -36,12 +39,14 @@ export interface Revealed extends Tally {
   pnmId: string;
 }
 
+// How many ballots are in for the PNM on screen, out of everyone whose ballot counts.
 export interface Progress {
   pnmId: string;
   voted: number;
   total: number;
 }
 
+// One PNM's line in the results.
 export interface ResultRow extends Tally {
   pnmId: string;
   name: string;
@@ -60,6 +65,7 @@ export interface Tie {
   spots: number;
 }
 
+// Every PNM ranked by percentage. The top `cutLine` make the class.
 export interface Results {
   rows: ResultRow[];
   cutLine: number;
@@ -89,6 +95,7 @@ export type ClientMessage =
   | { type: "startRevote" }
   | { type: "revealClass" };
 
+// The whole room as one socket may see it, sent on join and whenever the room changes too much to patch.
 export interface Snapshot {
   type: "snapshot";
   role: Role;
@@ -131,6 +138,7 @@ export type ServerMessage =
   | { type: "ended"; results?: Results }
   | { type: "error"; code: ErrorCode; message: string };
 
+// Why the room refused a message. Clients branch on these, so the message text is free to change.
 export type ErrorCode =
   | "bad_message"
   | "not_joined"
@@ -157,6 +165,7 @@ export type ErrorCode =
 export const CLOSE_KICKED = 4001;
 
 export const ROOM_CODE_LENGTH = 6;
+
 // Crockford base32 minus 0/1 and U, so a code read off a projector cannot be mistyped.
 export const ROOM_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
 // The alphabet holds no regex metacharacters, so it can sit in a character class as is.

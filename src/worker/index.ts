@@ -12,6 +12,7 @@ export { VotingRoom } from "./room";
 //   GET  /photos/:code/:id                 serve a stored photo
 // Everything else falls through to the static client.
 
+// Tries at drawing an unused code. With 729 million codes, more than one is already rare.
 const MAX_CODE_ATTEMPTS = 8;
 const ROOM_ROUTE = /^\/api\/rooms\/([^/]+)(\/ws)?$/;
 const PHOTO_IMPORT_ROUTE = /^\/api\/rooms\/([^/]+)\/photos\/([0-9a-f-]{36})$/;
@@ -26,6 +27,7 @@ function json(body: unknown, status = 200): Response {
 async function overLimit(limiter: RateLimit, request: Request): Promise<boolean> {
   const key = request.headers.get("CF-Connecting-IP");
   if (!key) return false;
+
   return !(await limiter.limit({ key })).success;
 }
 
@@ -41,6 +43,7 @@ async function createRoom(env: Env): Promise<Response> {
   return json({ error: "Could not allocate a room code." }, 503);
 }
 
+// Saves one PNM's Drive photo. The host key comes as a bearer token.
 async function handlePhotoImport(request: Request, env: Env, rawCode: string, pnmId: string): Promise<Response> {
   const code = rawCode.toUpperCase();
   if (!ROOM_CODE_PATTERN.test(code)) return json({ error: "Invalid room code." }, 400);
@@ -48,6 +51,7 @@ async function handlePhotoImport(request: Request, env: Env, rawCode: string, pn
 
   const hostKey = request.headers.get("Authorization")?.replace(/^Bearer /, "") ?? "";
   const result = await importPhoto(env, env.ROOM.getByName(code), code, hostKey, pnmId);
+
   if (result === "forbidden") return json({ error: "Host key required." }, 403);
   if (result === "missing") return json({ error: "No Drive photo to save." }, 404);
   return json(result, result.status === "saved" ? 200 : 422);
@@ -78,6 +82,7 @@ export default {
       if (!ROOM_CODE_PATTERN.test(code)) return json({ error: "Invalid room code." }, 400);
       // Sized for a whole chapter on one wifi network, not for guessing room codes.
       if (await overLimit(env.ROOM_ACCESS_LIMIT, request)) return json({ error: "Too many requests." }, 429);
+
       const room = env.ROOM.getByName(code);
       if (roomMatch[2]) return room.fetch(request);
       return (await room.exists()) ? json({ code }) : json({ error: "Room not found." }, 404);

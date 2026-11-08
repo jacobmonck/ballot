@@ -14,6 +14,7 @@ export function SoundToggle() {
   }
 
   const on = status === "on";
+
   return (
     <button
       type="button"
@@ -23,7 +24,9 @@ export function SoundToggle() {
       onClick={toggleMute}
     >
       <svg viewBox="0 0 20 20" className="size-5" aria-hidden="true">
+        {/* The speaker, with sound waves when on or a cross when muted. */}
         <path d="M3 8h3l4-3.5v11L6 12H3z" fill="currentColor" />
+
         <path
           d={on ? "M13 7.5a3.5 3.5 0 0 1 0 5M15.5 5a7 7 0 0 1 0 10" : "M13 8l4 4M17 8l-4 4"}
           fill="none"

@@ -6,15 +6,21 @@ import { BOARD_HEIGHT, BOARD_WIDTH, layoutBoard, MAX_MARBLES, type Rect, shuffle
 import { type DropMarble, marbleSides, PegboardRun, shownCount } from "../pegboardRun";
 import { sound } from "../sound";
 
+// The pile: how much of the screen a full pile covers, and how big a marble may get.
 const PILE_SHARE_OF_SCREEN = 0.1;
 const MIN_RADIUS_OF_WIDTH = 0.006;
 const MAX_RADIUS_OF_WIDTH = 0.015;
+
+// Drawing
 const MAX_DPR = 2;
 const SPRITE_SIZE = 128;
 const SHADOW_SCALE = 1.3;
 const SHADOW_DROP = 0.22;
+
+// The frame loop
 const MAX_FRAME_S = 1 / 30;
 const QUIET_FRAMES_BEFORE_SLEEP = 30;
+
 // The pegboard, in its own 1600 by 900 space.
 const BOARD_DIM = 0.85;
 const BOARD_DIM_S = 0.6;
@@ -25,12 +31,14 @@ const COUNT_X = { yes: 290, no: 1310 };
 const COUNT_LABEL_Y = 650;
 const COUNT_Y = 750;
 
+// The marble size that lets a full room's pile cover its share of the screen.
 function radiusFor(capacity: number) {
   const { innerWidth: width, innerHeight: height } = window;
   const fit = Math.sqrt((width * height * PILE_SHARE_OF_SCREEN) / (Math.min(capacity, MAX_MARBLES) * Math.PI));
   return Math.min(width * MAX_RADIUS_OF_WIDTH, Math.max(width * MIN_RADIUS_OF_WIDTH, fit));
 }
 
+// How one kind of marble is painted.
 interface Finish {
   body: readonly [light: string, mid: string, dark: string];
   // Darkens the edge so the disc reads as a sphere.
@@ -47,12 +55,14 @@ const GOLD: Finish = {
   bounce: "rgb(255 208 120 / 0.55)",
   gloss: "rgb(255 252 236 / 0.95)",
 };
+
 const WHITE: Finish = {
   body: ["#ffffff", "#efe9da", "#a9a18c"],
   edge: "rgb(84 74 52 / 0.55)",
   bounce: "rgb(255 246 222 / 0.7)",
   gloss: "rgb(255 255 255 / 1)",
 };
+
 const BLACK: Finish = {
   body: ["#4d5249", "#191c17", "#050604"],
   edge: "rgb(0 0 0 / 0.8)",
@@ -61,6 +71,7 @@ const BLACK: Finish = {
   outline: "rgb(245 241 230 / 0.32)",
 };
 
+// A radial gradient with its color stops already added.
 function radial(
   context: CanvasRenderingContext2D,
   x: number,
@@ -74,6 +85,7 @@ function radial(
   return gradient;
 }
 
+// Paints one marble onto a small canvas once, so each frame only has to copy it.
 function createSprite({ body, edge, bounce, gloss, outline }: Finish) {
   const sprite = document.createElement("canvas");
   sprite.width = sprite.height = SPRITE_SIZE;
@@ -95,12 +107,14 @@ function createSprite({ body, edge, bounce, gloss, outline }: Finish) {
   context.fillStyle = lit;
   context.fillRect(0, 0, size, size);
 
+  // The darker edge.
   context.fillStyle = radial(context, center, center, radius * 0.6, radius, [
     [0, "rgb(0 0 0 / 0)"],
     [1, edge],
   ]);
   context.fillRect(0, 0, size, size);
 
+  // The bounce light on the lower right.
   context.fillStyle = radial(context, center * 1.34, center * 1.46, 0, radius * 0.62, [
     [0, bounce],
     [1, "rgb(0 0 0 / 0)"],
@@ -118,6 +132,7 @@ function createSprite({ body, edge, bounce, gloss, outline }: Finish) {
   ]);
   context.globalAlpha = 0.6;
   context.fillRect(-size, -size, size * 2, size * 2);
+
   context.globalAlpha = 1;
   context.fillStyle = radial(context, 0, 0, 0, radius * 0.16, [
     [0, gloss],
@@ -134,22 +149,27 @@ function createSprite({ body, edge, bounce, gloss, outline }: Finish) {
     context.lineWidth = 1.5;
     context.stroke();
   }
+
   return sprite;
 }
 
+// The soft shadow drawn under every marble.
 function createShadow() {
   const sprite = document.createElement("canvas");
   sprite.width = sprite.height = SPRITE_SIZE;
   const context = sprite.getContext("2d")!;
   const center = SPRITE_SIZE / 2;
+
   context.fillStyle = radial(context, center, center, center * 0.45, center, [
     [0, "rgb(0 0 0 / 0.5)"],
     [1, "rgb(0 0 0 / 0)"],
   ]);
   context.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE);
+
   return sprite;
 }
 
+// A pegboard drop in progress, or finished and on show.
 interface Drop {
   run: PegboardRun;
   tally: Tally;
@@ -161,6 +181,7 @@ interface Drop {
 // Where the 1600 by 900 board sits on screen: as large as fits, centered.
 function boardFit() {
   const scale = Math.min(window.innerWidth / BOARD_WIDTH, window.innerHeight / BOARD_HEIGHT);
+
   return {
     scale,
     x: (window.innerWidth - BOARD_WIDTH * scale) / 2,
@@ -168,15 +189,18 @@ function boardFit() {
   };
 }
 
+// Starts a path around a rectangle with rounded corners.
 function roundedRect(context: CanvasRenderingContext2D, { left, right, top, bottom }: Rect, radius: number) {
   context.beginPath();
   context.roundRect(left, top, right - left, bottom - top, radius);
 }
 
+// Draws the tray, pegs, bins and counts. The marbles go on top separately.
 function drawBoard(context: CanvasRenderingContext2D, { run, tally, planned, fade }: Drop) {
   const { board } = run;
   const dim = 1 - BOARD_DIM * fade;
 
+  // The hopper tray and its spout.
   context.globalAlpha = dim;
   roundedRect(context, { ...board.tray, top: board.tray.top - TRAY_PADDING, bottom: board.tray.bottom + 2 }, 18);
   context.fillStyle = "rgb(247 244 236 / 0.04)";
@@ -187,12 +211,15 @@ function drawBoard(context: CanvasRenderingContext2D, { run, tally, planned, fad
   context.fillStyle = "rgb(247 244 236 / 0.12)";
   context.fillRect(board.spout.x - SPOUT_HALF_WIDTH, board.tray.bottom + 2, SPOUT_HALF_WIDTH * 2, 8);
 
+  // Pegs light up for a moment when a marble hits them.
   board.pegs.forEach(({ x, y }, index) => {
     const glow = run.pegGlow[index]!;
+
     context.beginPath();
     context.arc(x, y, board.pegRadius, 0, Math.PI * 2);
     context.fillStyle = `rgb(${200 + 55 * glow} ${180 + 50 * glow} ${120 + 40 * glow})`;
     context.fill();
+
     if (glow > 0.05) {
       context.beginPath();
       context.arc(x, y, board.pegRadius + 8 * glow, 0, Math.PI * 2);
@@ -202,6 +229,7 @@ function drawBoard(context: CanvasRenderingContext2D, { run, tally, planned, fad
   });
   context.globalAlpha = 1;
 
+  // The two bins, which share a middle wall. They stay bright while the rest dims.
   const { yes, no } = board.bins;
   context.strokeStyle = "rgb(247 244 236 / 0.14)";
   context.lineWidth = 3;
@@ -214,6 +242,7 @@ function drawBoard(context: CanvasRenderingContext2D, { run, tally, planned, fad
   context.lineTo((yes.right + no.left) / 2, yes.bottom);
   context.stroke();
 
+  // Each bin's label and count, which climbs as marbles land.
   const display = getComputedStyle(document.documentElement).getPropertyValue("--font-display");
   const sans = getComputedStyle(document.documentElement).getPropertyValue("--font-sans");
   context.textAlign = "center";
@@ -224,6 +253,7 @@ function drawBoard(context: CanvasRenderingContext2D, { run, tally, planned, fad
     context.font = `600 24px ${sans}`;
     context.fillStyle = "rgb(174 172 167 / 0.9)";
     context.fillText(label, x, COUNT_LABEL_Y);
+
     context.font = `700 96px ${display}`;
     context.fillStyle = "#f7f4ec";
     context.fillText(String(shownCount(run.landed[side], planned[side], tally[side])), x, COUNT_Y);
@@ -257,17 +287,22 @@ export function MarblePit({
   const canvas = useRef<HTMLCanvasElement>(null);
   const pile = useRef<MarblePile | null>(null);
   const drop = useRef<Drop | null>(null);
+  // Restarts the frame loop after it went to sleep. Replaced once the canvas is ready.
   const wake = useRef<() => void>(() => {});
   const shownScene = useRef(scene);
   const revealedScene = useRef<string | null>(null);
+
+  // Read inside the frame loop, so they're kept in refs rather than restarting it.
   const clackPitch = useRef<((live: number) => number) | null>(null);
   clackPitch.current = clacks ? (live) => live / Math.min(capacity, MAX_MARBLES) : null;
   const dropDone = useRef(onDropDone);
   dropDone.current = onDropDone;
 
+  // Sets up the canvas, the sprites and the frame loop.
   useEffect(() => {
     const element = canvas.current;
     if (!element) return;
+
     const context = element.getContext("2d")!;
     const gold = createSprite(GOLD);
     const sideSprite = { yes: createSprite(WHITE), no: createSprite(BLACK) };
@@ -307,9 +342,11 @@ export function MarblePit({
       context.globalAlpha = 1;
     };
 
+    // The board and its marbles are drawn in board space, then the pile on top in screen space.
     const draw = () => {
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
       const current = drop.current;
       if (current) {
         const fit = boardFit();
@@ -318,9 +355,11 @@ export function MarblePit({
         drawMarbles(current.run.marbles);
         context.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
+
       drawMarbles(simulation.marbles);
     };
 
+    // Advances the drop and plays its sounds. Returns whether anything is still moving.
     const playDrop = (current: Drop, dt: number) => {
       for (const event of current.run.step(dt)) {
         if (event.type === "tock") sound.tock();
@@ -331,6 +370,7 @@ export function MarblePit({
           dropDone.current?.();
         }
       }
+
       if (current.run.done && current.fade < 1) current.fade = Math.min(1, current.fade + dt / BOARD_DIM_S);
       return current.run.moving || (current.run.done && current.fade < 1);
     };
@@ -338,6 +378,7 @@ export function MarblePit({
     const tick = (now: number) => {
       const dt = Math.min((now - last) / 1000, MAX_FRAME_S);
       last = now;
+
       let moving = simulation.step(dt);
       const landings = simulation.takeLandings();
       if (landings && clackPitch.current) {
@@ -345,7 +386,9 @@ export function MarblePit({
         for (let landing = 0; landing < landings; landing++) sound.clack(pitch);
       }
       if (drop.current && playDrop(drop.current, dt)) moving = true;
+
       draw();
+
       quietFrames = moving ? 0 : quietFrames + 1;
       // A settled pile needs no frames, which keeps a laptop on the projector cool all night.
       frame = quietFrames < QUIET_FRAMES_BEFORE_SLEEP ? requestAnimationFrame(tick) : null;
@@ -360,6 +403,7 @@ export function MarblePit({
 
     resize();
     window.addEventListener("resize", resize);
+
     return () => {
       window.removeEventListener("resize", resize);
       if (frame !== null) cancelAnimationFrame(frame);
@@ -371,9 +415,12 @@ export function MarblePit({
     };
   }, [reducedMotion]);
 
+  // Keeps the pile in step with the props: a new scene drains it, a reveal starts a drop, and
+  // otherwise it fills to `count`.
   useEffect(() => {
     const simulation = pile.current;
     if (!simulation) return;
+
     if (shownScene.current !== scene) {
       shownScene.current = scene;
       // Next mid-drop stops it where it is and lets the board's marbles fall away with the pile.
@@ -393,10 +440,13 @@ export function MarblePit({
       }
       simulation.drain();
     }
+
     if (reveal && revealedScene.current !== scene) {
       revealedScene.current = scene;
       const { tally, live } = reveal;
+
       if (tally.yes + tally.no > 0) {
+        // The marbles already on the pile are the ones that drop, starting from where they sit.
         const planned = marbleSides(tally);
         const board = layoutBoard(planned);
         const sides = shuffleSides(planned);
@@ -410,13 +460,16 @@ export function MarblePit({
     } else if (!reveal) {
       revealedScene.current = null;
     }
+
     if (!drop.current) {
       const scale = capacity > MAX_MARBLES ? MAX_MARBLES / capacity : 1;
       simulation.setTarget(Math.round(count * scale), radiusFor(capacity));
     }
+
     wake.current();
   }, [scene, count, capacity, reveal, reducedMotion]);
 
+  // The pile hops once when every vote is in.
   useEffect(() => {
     if (!celebrate) return;
     pile.current?.hop();
@@ -424,5 +477,6 @@ export function MarblePit({
   }, [celebrate, scene]);
 
   if (reducedMotion) return null;
+
   return <canvas ref={canvas} className="absolute inset-0 size-full" />;
 }

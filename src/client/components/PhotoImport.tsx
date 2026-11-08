@@ -3,15 +3,19 @@ import { isDrivePhoto } from "../../shared/csv";
 import type { Pnm } from "../../shared/protocol";
 import { ProgressBar } from "./ProgressBar";
 
+// Few enough at once that Drive doesn't start refusing them.
 const CONCURRENT_PHOTOS = 4;
 const MAX_TRIES = 3;
 const RETRY_MS = 2_000;
 
 type Failure = "not_shared" | "other";
 
+// Asks the server to copy one PNM's photo, retrying with a longer wait while Drive is busy.
+// Returns null once it's saved, or why it couldn't be.
 async function saveOne(code: string, hostKey: string, pnmId: string): Promise<Failure | null> {
   for (let attempt = 1; ; attempt++) {
     let status: string | undefined;
+
     try {
       const response = await fetch(`/api/rooms/${code}/photos/${pnmId}`, {
         method: "POST",
@@ -22,8 +26,10 @@ async function saveOne(code: string, hostKey: string, pnmId: string): Promise<Fa
     } catch {
       status = "unavailable";
     }
+
     if (status === "not_shared") return "not_shared";
     if (status !== "unavailable" || attempt === MAX_TRIES) return "other";
+
     await new Promise((resolve) => setTimeout(resolve, RETRY_MS * attempt));
   }
 }
@@ -35,7 +41,11 @@ export function PhotoImport({ code, hostKey, pnms }: { code: string; hostKey: st
   const pendingKey = pending.map(({ id }) => id).join();
   const saved = pnms.filter(({ photoUrl }) => photoUrl?.startsWith("/photos/")).length;
   const [failures, setFailures] = useState<Record<string, Failure>>({});
+  // Bumped by Try again, to queue the failed photos a second time.
   const [round, setRound] = useState(0);
+
+  // One shared queue drained by up to CONCURRENT_PHOTOS workers. `queued` stops a photo being
+  // added twice while it's still on its way.
   const queued = useRef(new Set<string>());
   const queue = useRef<string[]>([]);
   const workers = useRef(0);
@@ -50,6 +60,7 @@ export function PhotoImport({ code, hostKey, pnms }: { code: string; hostKey: st
       workers.current--;
     };
 
+    // Queues photos that weren't queued yet, then starts as many workers as there's work for.
     for (const id of pendingKey ? pendingKey.split(",") : []) {
       if (queued.current.has(id)) continue;
       queued.current.add(id);
@@ -73,6 +84,7 @@ export function PhotoImport({ code, hostKey, pnms }: { code: string; hostKey: st
       <div className="mt-3">
         <ProgressBar value={saved} max={total} label="Photos saved" />
       </div>
+
       {!running && (
         <>
           <p className="mt-3 text-chalk">
@@ -81,9 +93,11 @@ export function PhotoImport({ code, hostKey, pnms }: { code: string; hostKey: st
               : `${failed.length} photos could not be saved.`}{" "}
             Until then, those PNMs show initials on phones.
           </p>
+
           <button
             type="button"
             className="btn btn-secondary mt-3"
+
             onClick={() => {
               queued.current.clear();
               setFailures({});

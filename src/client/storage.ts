@@ -20,15 +20,18 @@ function write(key: string, value: string) {
 export function memberIdentity(code: string): { memberId: string; name: string } | null {
   const name = read(`voting:${code}:name`);
   if (!name) return null;
+
   const key = `voting:${code}:member:${name.toLowerCase()}`;
   let memberId = read(key);
   if (!memberId) {
     memberId = crypto.randomUUID();
     write(key, memberId);
   }
+
   return { memberId, name };
 }
 
+// The name typed on the join page, read back by the ballot.
 export function saveName(code: string, name: string) {
   write(`voting:${code}:name`, name);
 }
@@ -38,6 +41,7 @@ export function loadHostKey(code: string): string | null {
   return read(`voting:${code}:host`);
 }
 
+// Saved when this device starts a room, or when the host pastes the key on a new device.
 export function saveHostKey(code: string, hostKey: string) {
   write(`voting:${code}:host`, hostKey);
 }

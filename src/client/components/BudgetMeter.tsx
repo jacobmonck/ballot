@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { flick } from "../feel";
 
+// Past this many Yes votes, the meter only shows the count.
 const MAX_MARBLES = 60;
 
 // A brother's remaining Yes votes, drawn as marbles when there are few enough to count at a glance.
@@ -8,6 +9,7 @@ export function BudgetMeter({ used, budget, isDefault }: { used: number; budget:
   if (isDefault) return <p className="type-caption text-center text-chalk">Vote Yes as often as you like.</p>;
 
   const left = Math.max(0, budget - used);
+
   return (
     <div>
       {budget <= MAX_MARBLES && (
@@ -23,6 +25,7 @@ export function BudgetMeter({ used, budget, isDefault }: { used: number; budget:
           ))}
         </div>
       )}
+
       <p className="type-caption mt-1.5 text-center text-chalk">
         {left} of {budget} Yes votes left
       </p>

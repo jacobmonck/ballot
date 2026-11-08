@@ -24,10 +24,12 @@ import { photoKey } from "./photos";
 import { migrate } from "./schema";
 import { parseClientMessage } from "./validate";
 
+// A room is erased after this long without use.
 const ROOM_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_MEMBERS = 1_000;
 // Joins and votes arrive in bursts, and each update reaches every socket, so they go out together.
 const ROOM_UPDATE_MS = 200;
+// Each socket may send this many messages per window before the rest are dropped.
 const SOCKET_WINDOW_MS = 10_000;
 const SOCKET_WINDOW_MESSAGES = 60;
 
@@ -37,6 +39,7 @@ const MOST_YES_SPENT_SQL = `
   FROM (SELECT COUNT(*) AS yeses FROM vote WHERE value = 'yes' GROUP BY member_id)
 `;
 
+// Kicked members who voted still count, since their votes do.
 const BALLOT_COUNT_SQL = `
   SELECT COUNT(*) AS count FROM member
   WHERE kicked = 0 OR EXISTS (SELECT 1 FROM vote WHERE vote.member_id = member.id)
@@ -62,6 +65,7 @@ interface Attachment {
   memberId: string | null;
 }
 
+// Rows as SQLite returns them. Booleans are stored as 0 or 1.
 type RoomRow = {
   code: string;
   host_key: string;
@@ -97,6 +101,7 @@ class Refusal extends Error {
   }
 }
 
+// A stored PNM as clients see it.
 function toPnm(row: PnmRow): Pnm {
   return {
     id: row.id,
@@ -111,6 +116,7 @@ function toPnm(row: PnmRow): Pnm {
 function compareShare(a: Tally, b: Tally): number {
   const castA = a.yes + a.no;
   const castB = b.yes + b.no;
+  // Cross-multiplying needs votes on both sides. Without them, a PNM with no votes counts as 0%.
   if (castA === 0 || castB === 0) return (castB === 0 ? 0 : b.yes / castB) - (castA === 0 ? 0 : a.yes / castA);
   return b.yes * castA - a.yes * castB;
 }
@@ -129,6 +135,8 @@ function findTie(ranked: { row: ResultRow; rounds: Tally[] }[], cutLine: number)
   const lastIn = ranked[cutLine - 1];
   const firstOut = ranked[cutLine];
   if (!lastIn || !firstOut || compareRounds(lastIn.rounds, firstOut.rounds) !== 0) return null;
+
+  // Everyone level with the last PNM in, and how many spots are left for them above the line.
   const tied = ranked.filter(({ rounds }) => compareRounds(rounds, lastIn.rounds) === 0);
   const before = ranked.findIndex(({ rounds }) => compareRounds(rounds, lastIn.rounds) === 0);
   return { pnmIds: tied.map(({ row }) => row.pnmId), spots: cutLine - before };
@@ -139,6 +147,7 @@ function timingSafeEqual(a: string, b: string): boolean {
   const encoder = new TextEncoder();
   const left = encoder.encode(a);
   const right = encoder.encode(b);
+
   return left.byteLength === right.byteLength && crypto.subtle.timingSafeEqual(left, right);
 }
 
@@ -150,6 +159,7 @@ function timingSafeEqual(a: string, b: string): boolean {
 export class VotingRoom extends DurableObject<Env> {
   private readonly sql: SqlStorage;
   private readonly socketUse = new WeakMap<WebSocket, { windowStart: number; messages: number }>();
+  // The pending batched broadcast, and whether it should include the member list.
   private roomUpdate: ReturnType<typeof setTimeout> | null = null;
   private membersChanged = false;
   // Tables only exist once a room is claimed, so looking up an unused code leaves no storage behind.
@@ -162,22 +172,28 @@ export class VotingRoom extends DurableObject<Env> {
       this.hasTables =
         this.sql.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'room'").toArray().length > 0;
       if (!this.hasTables) return;
+
       migrate(this.sql);
+
       // Lookups used to create tables for codes nobody claimed. Those are erased when next touched.
       if (!this.roomOrNull()) {
         await ctx.storage.deleteAll();
         this.hasTables = false;
         return;
       }
+
       // Rooms from before retention existed have no expiry yet.
       if ((await ctx.storage.getAlarm()) === null) this.keepAlive();
     });
+
+    // Heartbeats are answered without waking the object.
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
   // Sets up a fresh room. Returns false if the code is already taken.
   async claim(code: string, hostKey: string, projectorKey: string): Promise<boolean> {
     if (this.roomOrNull()) return false;
+
     migrate(this.sql);
     this.hasTables = true;
     this.sql.exec(
@@ -187,6 +203,7 @@ export class VotingRoom extends DurableObject<Env> {
       projectorKey,
       Date.now(),
     );
+
     this.keepAlive();
     return true;
   }
@@ -208,6 +225,7 @@ export class VotingRoom extends DurableObject<Env> {
   async photoSource(hostKey: string, pnmId: string): Promise<string> {
     const room = this.roomOrNull();
     if (!room || !timingSafeEqual(hostKey, room.host_key)) return "forbidden";
+
     const row = this.sql
       .exec<{ photo_url: string | null }>("SELECT photo_url FROM pnm WHERE id = ?", pnmId)
       .toArray()[0];
@@ -218,6 +236,7 @@ export class VotingRoom extends DurableObject<Env> {
   async savePhoto(hostKey: string, pnmId: string, source: string, photoUrl: string): Promise<boolean> {
     const room = this.roomOrNull();
     if (!room || !timingSafeEqual(hostKey, room.host_key)) return false;
+
     const { rowsWritten } = this.sql.exec(
       "UPDATE pnm SET photo_url = ? WHERE id = ? AND photo_url = ?",
       photoUrl,
@@ -225,15 +244,18 @@ export class VotingRoom extends DurableObject<Env> {
       source,
     );
     if (rowsWritten === 0) return false;
+
     const { seen } = this.sql.exec<{ seen: number }>("SELECT seen FROM pnm WHERE id = ?", pnmId).one();
     const message: ServerMessage = { type: "pnmPhoto", pnmId, photoUrl };
     // A PNM brothers haven't reached yet stays off their phones, photo included.
     if (seen) this.broadcast(message);
     else this.sendToHosts(message);
+
     this.keepAlive();
     return true;
   }
 
+  // Accepts a WebSocket for an existing room. Joining happens over the socket.
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });
@@ -245,13 +267,16 @@ export class VotingRoom extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  // Every message is validated, then handled. A Refusal goes back to the sender; anything else is a bug.
   async webSocketMessage(ws: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     if (this.overSocketLimit(ws)) return;
+
     const message = parseClientMessage(raw);
     if (message === null) {
       this.send(ws, { type: "error", code: "bad_message", message: "Message not understood." });
       return;
     }
+
     try {
       this.dispatch(ws, message);
     } catch (error) {
@@ -260,6 +285,7 @@ export class VotingRoom extends DurableObject<Env> {
         this.send(ws, { type: "error", code: "server_error", message: "Something went wrong. Try that again." });
         return;
       }
+
       this.send(ws, { type: "error", code: error.code, message: error.message });
       if (error.code === "kicked") ws.close(CLOSE_KICKED, "removed");
     }
@@ -282,14 +308,18 @@ export class VotingRoom extends DurableObject<Env> {
       this.socketUse.set(ws, { windowStart: now, messages: 1 });
       return false;
     }
+
     use.messages++;
     if (use.messages <= SOCKET_WINDOW_MESSAGES) return false;
+
+    // Says so once per window, not on every dropped message.
     if (use.messages === SOCKET_WINDOW_MESSAGES + 1) {
       this.send(ws, { type: "error", code: "rate_limited", message: "Too many requests. Wait a few seconds." });
     }
     return true;
   }
 
+  // Pushes the room's expiry a month out from now.
   private keepAlive() {
     void this.ctx.storage.setAlarm(Date.now() + ROOM_TTL_MS);
   }
@@ -298,6 +328,7 @@ export class VotingRoom extends DurableObject<Env> {
   private dispatch(ws: WebSocket, message: ClientMessage) {
     if (message.type === "join") {
       if (this.attachment(ws)) throw new Refusal("already_joined", "Already joined.");
+
       this.keepAlive();
       if (message.as === "brother") this.joinBrother(ws, message.memberId, message.name);
       else if (message.as === "host") this.joinHost(ws, message.hostKey);
@@ -315,6 +346,7 @@ export class VotingRoom extends DurableObject<Env> {
     }
 
     if (self.role !== "host") throw new Refusal("forbidden", "Only the host can do that.");
+
     this.keepAlive();
     switch (message.type) {
       case "importPnms":
@@ -338,6 +370,7 @@ export class VotingRoom extends DurableObject<Env> {
     }
   }
 
+  // Marks the socket as joined and sends it the room.
   private attach(ws: WebSocket, attachment: Attachment) {
     ws.serializeAttachment(attachment);
     this.send(ws, this.snapshot(attachment));
@@ -357,6 +390,7 @@ export class VotingRoom extends DurableObject<Env> {
     this.attach(ws, { role: "projector", memberId: null });
   }
 
+  // A known memberId rejoins as the same member. A new one joins unless the room is closed or full.
   private joinBrother(ws: WebSocket, memberId: string, name: string) {
     const existing = this.sql
       .exec<{ name: string; kicked: number }>("SELECT name, kicked FROM member WHERE id = ?", memberId)
@@ -390,6 +424,7 @@ export class VotingRoom extends DurableObject<Env> {
     if (existing?.name !== name) this.queueRoomUpdate(true);
   }
 
+  // Records, changes or clears one vote. The voter's other devices hear about it too.
   private vote(memberId: string, pnmId: string, value: VoteValue | null) {
     if (this.room().phase === "ended") throw new Refusal("session_ended", "Voting has ended.");
 
@@ -401,6 +436,7 @@ export class VotingRoom extends DurableObject<Env> {
       throw new Refusal("not_in_revote", "Only the tied PNMs are open for voting.");
     }
 
+    // A Yes counts against the budget, leaving out any Yes this PNM already has from this voter.
     if (value === "yes") {
       const { spent } = this.sql
         .exec<{ spent: number }>(
@@ -414,6 +450,7 @@ export class VotingRoom extends DurableObject<Env> {
       }
     }
 
+    // Null clears the vote.
     if (value === null) {
       this.sql.exec("DELETE FROM vote WHERE member_id = ? AND pnm_id = ?", memberId, pnmId);
     } else {
@@ -427,18 +464,22 @@ export class VotingRoom extends DurableObject<Env> {
       );
     }
 
+    // Tallies go only to hosts. Everyone else hears that a vote came in, not which way.
     const myVote: ServerMessage = { type: "myVote", pnmId, value, yesUsed: this.yesUsed(memberId) };
     for (const socket of this.ctx.getWebSockets()) {
       if (this.attachment(socket)?.memberId === memberId) this.send(socket, myVote);
     }
+
     this.queueRoomUpdate(false);
     this.sendToHosts({ type: "tally", pnmId, ...this.tally(pnmId) });
   }
 
+  // Replaces the whole PNM list. Photos saved for the old list are deleted from R2 afterwards.
   private importPnms(pnms: PnmInput[]) {
     if (this.room().phase !== "setup") {
       throw new Refusal("wrong_phase", "PNMs cannot be replaced after voting has started.");
     }
+
     const replacedPhotos = this.photoKeys();
     this.ctx.storage.transactionSync(() => {
       this.sql.exec("DELETE FROM pnm");
@@ -453,10 +494,12 @@ export class VotingRoom extends DurableObject<Env> {
         );
       });
     });
+
     this.broadcastSnapshots();
     if (replacedPhotos.length > 0) this.ctx.waitUntil(this.env.PHOTOS.delete(replacedPhotos));
   }
 
+  // The R2 keys of every photo saved for this room.
   private photoKeys(): string[] {
     return this.sql
       .exec<{ photo_url: string | null }>("SELECT photo_url FROM pnm")
@@ -469,14 +512,20 @@ export class VotingRoom extends DurableObject<Env> {
     if (keys.length > 0) await this.env.PHOTOS.delete(keys);
   }
 
+  // Sets the class size, which is also each brother's Yes budget. Null removes it. It can't go below
+  // what a brother has already spent.
   private setBudget(yesBudget: number | null) {
     if (this.room().phase === "ended") throw new Refusal("session_ended", "Voting has ended.");
+
     const count = this.pnmCount();
     if (count === 0) throw new Refusal("wrong_phase", "Import PNMs before setting the budget.");
+
     // The revote is deciding the spots left under the current cut line, so that line can't move under it.
     if (this.room().revote_spots !== null) {
       throw new Refusal("wrong_phase", "Finish the revote before changing the class size.");
     }
+
+    // 0 means no limit.
     const stored = yesBudget === null ? 0 : Math.max(1, Math.min(yesBudget, count));
     const { spent } = this.sql.exec<{ spent: number }>(MOST_YES_SPENT_SQL).one();
     if (stored !== 0 && stored < spent) {
@@ -485,38 +534,47 @@ export class VotingRoom extends DurableObject<Env> {
         `A brother has already used ${spent} Yes votes. Set the limit to ${spent} or higher.`,
       );
     }
+
     this.sql.exec("UPDATE room SET yes_budget = ?", stored);
     this.broadcast({ type: "budget", yesBudget: this.effectiveBudget(), budgetIsDefault: stored === 0 });
   }
 
+  // Puts a PNM on screen. It becomes visible to brothers and open for votes from here on.
   private setFocus(pnmId: string) {
     if (this.room().phase === "ended") throw new Refusal("session_ended", "Voting has ended.");
+
     const row = this.sql.exec<PnmRow>("SELECT * FROM pnm WHERE id = ?", pnmId).toArray()[0];
     if (!row) throw new Refusal("not_found", "No such PNM.");
     if (this.room().revote_spots !== null && !row.in_revote) {
       throw new Refusal("not_in_revote", "Only the tied PNMs are open for voting.");
     }
+
     this.sql.exec("UPDATE pnm SET seen = 1 WHERE id = ?", pnmId);
     this.sql.exec(
       "UPDATE room SET focus_pnm_id = ?, revealed_pnm_id = NULL, revealed_yes = NULL, revealed_no = NULL, phase = 'live'",
       pnmId,
     );
+
     this.broadcast({ type: "focus", pnm: toPnm(row), progress: this.progress(pnmId) });
   }
 
+  // Shows the PNM on screen's tally on the projector.
   private reveal(pnmId: string) {
     const room = this.room();
     if (room.phase !== "live" || room.focus_pnm_id !== pnmId) {
       throw new Refusal("wrong_phase", "Only the PNM on screen can be revealed.");
     }
+
     // Votes stay open after a reveal, so the tally is frozen here. A reconnect must not show later changes.
     const { yes, no } = this.tally(pnmId);
     this.sql.exec("UPDATE room SET revealed_pnm_id = ?, revealed_yes = ?, revealed_no = ?", pnmId, yes, no);
     this.sendToScreens({ type: "revealed", pnmId, yes, no });
   }
 
+  // Removes a member and closes their sockets. They can't rejoin under the same id.
   private kick(handle: string) {
     if (this.room().phase === "ended") throw new Refusal("session_ended", "Voting has ended.");
+
     const target = this.sql
       .exec<{ id: string }>("SELECT id FROM member WHERE handle = ? AND kicked = 0", handle)
       .toArray()[0];
@@ -531,9 +589,11 @@ export class VotingRoom extends DurableObject<Env> {
         socket.close(CLOSE_KICKED, "removed");
       }
     }
+
     this.queueRoomUpdate(true);
   }
 
+  // Closes or reopens the room to new names.
   private setJoinLocked(locked: boolean) {
     this.sql.exec("UPDATE room SET join_locked = ?", locked ? 1 : 0);
     this.broadcast({ type: "joinLock", locked });
@@ -549,15 +609,19 @@ export class VotingRoom extends DurableObject<Env> {
     this.roomUpdate = null;
     const room = this.roomOrNull();
     if (!room) return;
+
     if (this.membersChanged) this.broadcast({ type: "members", members: this.members() });
     this.membersChanged = false;
     if (room.focus_pnm_id) this.broadcast({ type: "progress", ...this.progress(room.focus_pnm_id) });
   }
 
+  // Ends voting for everyone. Only hosts receive the results.
   private endSession() {
     if (this.room().phase === "ended") throw new Refusal("session_ended", "Voting has already ended.");
+
     this.sql.exec("UPDATE room SET phase = 'ended', revote_spots = NULL");
     this.sql.exec("UPDATE pnm SET in_revote = 0");
+
     const results = this.results();
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = this.attachment(socket);
@@ -566,8 +630,11 @@ export class VotingRoom extends DurableObject<Env> {
     }
   }
 
+  // Reopens voting for the PNMs tied at the cut line. Each keeps this round's tally in past_rounds,
+  // then starts the new round with no votes.
   private startRevote() {
     if (this.room().phase !== "ended") throw new Refusal("wrong_phase", "End voting before starting a revote.");
+
     const { tie } = this.results();
     if (!tie) throw new Refusal("no_tie", "No tie to break.");
 
@@ -587,19 +654,24 @@ export class VotingRoom extends DurableObject<Env> {
         tie.spots,
       );
     });
+
     this.broadcastSnapshots();
   }
 
+  // Shows who made the class on the projector, with no tallies or rank.
   private revealClass() {
     if (this.room().phase !== "ended") throw new Refusal("wrong_phase", "End voting before revealing the class.");
     if (this.results().tie) throw new Refusal("tie_unresolved", "Break the tie before revealing the class.");
+
     this.sql.exec("UPDATE room SET class_revealed = 1");
     this.sendToScreens({ type: "classRevealed", members: this.classMembers() });
   }
 
+  // Everyone above the cut line, put back in interview order so the reveal doesn't give away rank.
   private classMembers(): ClassMember[] {
     const { rows, cutLine } = this.results();
     const made = new Set(rows.slice(0, cutLine).map(({ pnmId }) => pnmId));
+
     return this.sql
       .exec<PnmRow>("SELECT * FROM pnm ORDER BY ordinal")
       .toArray()
@@ -612,6 +684,7 @@ export class VotingRoom extends DurableObject<Env> {
     return this.sql.exec<RoomRow>("SELECT * FROM room").toArray()[0];
   }
 
+  // The room row, for code that only runs once the room is claimed.
   private room(): RoomRow {
     const room = this.roomOrNull();
     if (!room) throw new Error("Room was never claimed");
@@ -627,6 +700,7 @@ export class VotingRoom extends DurableObject<Env> {
     return this.sql.exec<{ count: number }>(BALLOT_COUNT_SQL).one().count;
   }
 
+  // The class size in use: the host's setting, capped at the number of PNMs, or every PNM when unset.
   private effectiveBudget(): number {
     const count = this.pnmCount();
     const { yes_budget } = this.room();
@@ -671,22 +745,28 @@ export class VotingRoom extends DurableObject<Env> {
     return tallies;
   }
 
+  // The revote in progress, or null.
   private revote(): Tie | null {
     const spots = this.room().revote_spots;
     if (spots === null) return null;
+
     const rows = this.sql.exec<{ id: string }>("SELECT id FROM pnm WHERE in_revote = 1 ORDER BY ordinal").toArray();
     return { pnmIds: rows.map(({ id }) => id), spots };
   }
 
+  // The frozen tally the host last revealed, or null.
   private revealed({ revealed_pnm_id, revealed_yes, revealed_no }: RoomRow): Revealed | null {
     if (revealed_pnm_id === null) return null;
     return { pnmId: revealed_pnm_id, yes: revealed_yes ?? 0, no: revealed_no ?? 0 };
   }
 
+  // Every PNM ranked by the first round's Yes share, with revote rounds breaking ties, plus any tie
+  // still straddling the cut line.
   private results(): Results {
     const tallies = this.tallies();
     const total = this.ballotCount();
     const pnms = this.sql.exec<PnmRow>("SELECT * FROM pnm ORDER BY ordinal").toArray();
+
     const ranked = pnms.map((pnm) => {
       const rounds = [...(JSON.parse(pnm.past_rounds) as Tally[]), tallies[pnm.id] ?? { yes: 0, no: 0 }];
       const { yes, no } = rounds[0]!;
@@ -701,8 +781,10 @@ export class VotingRoom extends DurableObject<Env> {
         percent: yes + no === 0 ? 0 : (yes / (yes + no)) * 100,
         revotes: rounds.slice(1),
       };
+
       return { row, rounds };
     });
+
     // Array.prototype.sort is stable, so remaining ties keep interview order.
     ranked.sort((a, b) => compareRounds(a.rounds, b.rounds));
 
@@ -714,6 +796,8 @@ export class VotingRoom extends DurableObject<Env> {
   private snapshot({ role, memberId }: Attachment): Snapshot {
     const room = this.room();
     const isHost = role === "host";
+
+    // Only the host sees PNMs before they come up.
     const where = isHost ? "" : "WHERE seen = 1";
     const pnms = this.sql.exec<PnmRow>(`SELECT * FROM pnm ${where} ORDER BY ordinal`).toArray().map(toPnm);
 
@@ -755,6 +839,7 @@ export class VotingRoom extends DurableObject<Env> {
     };
   }
 
+  // Who a socket joined as, or null before it has joined.
   private attachment(ws: WebSocket): Attachment | null {
     return ws.deserializeAttachment() as Attachment | null;
   }
@@ -789,6 +874,7 @@ export class VotingRoom extends DurableObject<Env> {
     }
   }
 
+  // A fresh snapshot to every joined socket, for changes too big to send as a patch.
   private broadcastSnapshots() {
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = this.attachment(socket);

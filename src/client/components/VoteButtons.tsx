@@ -28,9 +28,13 @@ export function VoteButtons(props: Props) {
 }
 
 function FlickButtons({ value, yesDisabled, disabled, sending, onVote }: Props) {
+  // The marble picked but not cast yet.
   const [picked, setPicked] = useState<VoteValue | null>(null);
+  // True while a brother who already voted is choosing again.
   const [changing, setChanging] = useState(false);
+  // True while a cast marble flies off the top of the screen.
   const [launching, setLaunching] = useState(false);
+  // Set when a press turns into a drag, so the click that follows doesn't count as a tap.
   const dragged = useRef(false);
 
   // Spending the last Yes elsewhere takes back a Yes that was picked but not cast.
@@ -59,6 +63,7 @@ function FlickButtons({ value, yesDisabled, disabled, sending, onVote }: Props) 
     setLaunching(false);
   };
 
+  // A vote that's in shows as a small marble with ways to change or clear it.
   if (value && !changing && !picked) {
     return (
       <motion.div className="flex h-[11.5rem] flex-col items-center justify-center text-center" {...materialize}>
@@ -66,6 +71,7 @@ function FlickButtons({ value, yesDisabled, disabled, sending, onVote }: Props) 
         <p className="type-headline mt-3" role="status">
           Your {LABEL[value]} is in
         </p>
+
         <div className="mt-2 flex h-6 gap-5">
           {sending ? (
             <span className="type-caption text-brass">Sending your vote</span>
@@ -88,6 +94,7 @@ function FlickButtons({ value, yesDisabled, disabled, sending, onVote }: Props) 
 
   return (
     <div className="flex h-[11.5rem] flex-col justify-end">
+      {/* The slot a picked marble is flicked into. */}
       <div className="flex h-12 flex-col items-center justify-start">
         <AnimatePresence>
           {picked && !launching && (
@@ -99,6 +106,7 @@ function FlickButtons({ value, yesDisabled, disabled, sending, onVote }: Props) 
               transition={settle}
             >
               <span className="h-3 w-28 rounded-full bg-black shadow-[inset_0_2px_4px_rgb(0_0_0/0.9),0_1px_0_rgb(247_244_236/0.12)]" />
+
               <span className="type-caption mt-1 flex items-center gap-1 text-brass">
                 <span className="nudge-up inline-block" aria-hidden="true">
                   ↑
@@ -109,11 +117,14 @@ function FlickButtons({ value, yesDisabled, disabled, sending, onVote }: Props) 
           )}
         </AnimatePresence>
       </div>
+
+      {/* The two marbles. Picking one slides it to the center and hides the other. */}
       <div className="relative mt-2 flex justify-center gap-10">
         {(["yes", "no"] as const).map((side) => {
           const isPicked = picked === side;
           const hidden = picked !== null && !isPicked;
           const unavailable = side === "yes" && yesDisabled;
+
           return (
             <motion.button
               key={side}
@@ -163,6 +174,8 @@ function FlickButtons({ value, yesDisabled, disabled, sending, onVote }: Props) 
           );
         })}
       </div>
+
+      {/* One link at a time: sending, switch sides, or back out of changing a vote. */}
       <div className="mt-3 flex h-6 justify-center gap-5 text-center">
         {sending ? (
           <span role="status" className="type-caption text-brass">
@@ -208,6 +221,7 @@ function TapButtons({ value, yesDisabled, disabled, sending, onVote }: Props) {
           animate={{ x: RING_OFFSET[ringSide.current], opacity: value ? 1 : 0, scale: value ? 1 : 0.8 }}
           transition={flick}
         />
+
         <Marble
           label="Yes"
           ball="ball-yes"
@@ -217,6 +231,7 @@ function TapButtons({ value, yesDisabled, disabled, sending, onVote }: Props) {
           disabled={disabled || yesDisabled}
           onClick={() => tap("yes")}
         />
+
         <Marble
           label="No"
           ball="ball-no"
@@ -227,6 +242,7 @@ function TapButtons({ value, yesDisabled, disabled, sending, onVote }: Props) {
           onClick={() => tap("no")}
         />
       </div>
+
       <div className="mt-3 h-6 text-center">
         {sending ? (
           <span role="status" className="type-caption text-brass">
@@ -245,6 +261,7 @@ function TapButtons({ value, yesDisabled, disabled, sending, onVote }: Props) {
   );
 }
 
+// One big tappable marble on the reduced motion ballot.
 function Marble({
   label,
   ball,

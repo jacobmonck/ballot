@@ -2,6 +2,7 @@ import { AnimatePresence, motion, useDragControls } from "motion/react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { flick, project, settle } from "../feel";
 
+// How far a drag, plus where its speed would carry it, has to go to close the sheet.
 const DISMISS_DISTANCE = 160;
 
 // A bottom sheet that closes on Escape, the backdrop or a downward drag, and returns focus when it does.
@@ -18,18 +19,23 @@ export function Sheet({
 }) {
   const controls = useDragControls();
   const doneButton = useRef<HTMLButtonElement>(null);
+  // The latest onClose, so the key listener doesn't need to be swapped every render.
   const close = useRef(onClose);
   close.current = onClose;
 
+  // While open: focus moves into the sheet, Escape closes it, and the page behind stops scrolling.
   useEffect(() => {
     if (!open) return;
+
     const returnTo = document.activeElement as HTMLElement | null;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") close.current();
     };
+
     doneButton.current?.focus();
     document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
+
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
@@ -41,6 +47,7 @@ export function Sheet({
     <AnimatePresence>
       {open && (
         <>
+          {/* The backdrop. Tapping it closes the sheet. */}
           <motion.div
             className="fixed inset-0 z-30 bg-black/50"
             initial={{ opacity: 0 }}
@@ -49,6 +56,7 @@ export function Sheet({
             transition={settle}
             onClick={onClose}
           />
+
           <motion.div
             role="dialog"
             aria-modal="true"
@@ -67,11 +75,13 @@ export function Sheet({
               if (offset.y + project(velocity.y) > DISMISS_DISTANCE) onClose();
             }}
           >
+            {/* Only the handle and title start a drag, so the content below can scroll. */}
             <div
               className="shrink-0 cursor-grab touch-none px-5 pt-2.5 pb-2"
               onPointerDown={(event) => controls.start(event)}
             >
               <div className="mx-auto h-1 w-9 rounded-full bg-ivory/30" />
+
               <div className="mt-2 flex items-center justify-between">
                 <h2 className="type-title">{title}</h2>
                 <button ref={doneButton} type="button" className="btn btn-sm btn-secondary" onClick={onClose}>
@@ -79,6 +89,7 @@ export function Sheet({
                 </button>
               </div>
             </div>
+
             <div className="overflow-y-auto overscroll-contain px-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
               {children}
             </div>
