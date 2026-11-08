@@ -160,6 +160,7 @@ function Ballot({
             </button>
           )}
           <VoteButtons
+            key={pnm.id}
             value={value}
             yesDisabled={outOfYes && value !== "yes"}
             disabled={settling}

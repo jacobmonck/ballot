@@ -384,6 +384,23 @@ select {
   }
 }
 
+/* Nudges the "flick it up" arrow on the ballot. */
+.nudge-up {
+  animation: nudge-up 1.2s ease-in-out infinite;
+}
+
+@keyframes nudge-up {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .btn,
   .link,
@@ -395,7 +412,8 @@ select {
     scale: 1;
   }
 
-  .aurora {
+  .aurora,
+  .nudge-up {
     animation: none;
   }
 }

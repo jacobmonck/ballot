@@ -10,9 +10,19 @@ export function project(velocity: number, decelerationRate = 0.998) {
   return ((velocity / 1000) * decelerationRate) / (1 - decelerationRate);
 }
 
+const FLICK_DISTANCE = 120;
+const FLICK_MIN_DRAG = 12;
+
+// Whether a vertical release throws the marble up and away: far enough once its speed is counted,
+// and moved on purpose rather than a twitch at the start of a tap.
+export function isFlick(offsetY: number, velocityY: number) {
+  return offsetY < -FLICK_MIN_DRAG && offsetY + project(velocityY) < -FLICK_DISTANCE;
+}
+
 // A short tap on phones that support it. Does nothing elsewhere, including iOS Safari.
+// Typed by hand because the tests are type-checked without the DOM library.
 export function haptic() {
-  navigator.vibrate?.(10);
+  (navigator as { vibrate?: (pattern: number) => boolean }).vibrate?.(10);
 }
 
 // Enter and exit for content that appears in place, such as a new PNM card.
