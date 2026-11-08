@@ -65,6 +65,26 @@ describe("PegboardRun", () => {
     expect(run.marbles.filter(({ side }) => side !== null)).toHaveLength(1);
   });
 
+  it("refills the spout from neighboring hopper slots only", () => {
+    const run = startRun(120, 80);
+    const board = run.board;
+    const slotsOf = () =>
+      new Map(run.marbles.filter(({ side }) => side === null).map((marble) => [marble, marble.hopperSlot!]));
+    let before = slotsOf();
+    for (let frame = 0; frame < 60 * 8; frame++) {
+      run.step(1 / 60);
+      const after = slotsOf();
+      for (const [marble, slot] of after) {
+        const previous = before.get(marble);
+        if (previous === undefined || previous === slot) continue;
+        const from = board.hopper[previous]!;
+        const to = board.hopper[slot]!;
+        expect(Math.hypot(to.x - from.x, to.y - from.y)).toBeLessThan(board.radius * 2.3);
+      }
+      before = after;
+    }
+  });
+
   it("goes silent when cancelled", () => {
     const run = startRun(20, 20);
     for (let frame = 0; frame < 120; frame++) run.step(1 / 60);

@@ -4,6 +4,8 @@ import { type Board, MAX_MARBLES, type Path, pathPoint, planPath, type Point, ty
 export const HOPPER_RISE_S = 0.9;
 const FIRST_RELEASE_S = HOPPER_RISE_S + 0.3;
 const HOPPER_EASE_PER_S = 12;
+// How far a hopper marble may move to fill a gap, in marble radii: one neighboring place.
+const HOPPER_REACH = 2.3;
 const DROP_SPREAD_S = 13;
 const MAX_GAP_S = 0.45;
 // The spike's slow finish: the gaps before each of the last five marbles.
@@ -179,14 +181,48 @@ export class PegboardRun {
 
   // Lets go of the marble at the spout. Its side is only decided, and shown, from here on.
   private release() {
-    const marble = this.marbles.find(({ hopperSlot }) => hopperSlot === 0)!;
+    const waiting = this.marbles.filter(({ hopperSlot }) => hopperSlot !== null && hopperSlot >= 0);
+    // The spout's slot is normally full. Should it ever not be, the nearest marble goes instead.
+    const marble = waiting.reduce((best, next) => (next.hopperSlot! < best.hopperSlot! ? next : best));
+    const hole = marble.hopperSlot!;
     const side = this.sides[this.released++]!;
     const slot = this.board.slots[side][this.assigned[side]++]!;
     marble.hopperSlot = -1;
     marble.side = side;
     marble.alpha = 1;
     marble.path = planPath(this.board, side, slot, this.random, { x: marble.x, y: marble.y });
-    for (const other of this.marbles) if (other.hopperSlot !== null && other.hopperSlot > 0) other.hopperSlot--;
+    this.refill(
+      hole,
+      waiting.filter((other) => other !== marble),
+    );
+  }
+
+  // Like grain in a funnel: the marble above a gap drops into it, or failing that one beside it rolls
+  // over, and the gap moves on to where that marble was. Each marble only ever moves one place.
+  private refill(hole: number, marbles: RunMarble[]) {
+    const { hopper, radius } = this.board;
+    let waiting = marbles;
+    const reach = radius * HOPPER_REACH;
+    for (let gap: number | null = hole; gap !== null;) {
+      const at: Point = hopper[gap]!;
+      const near = waiting.filter(({ hopperSlot }) => {
+        const slot = hopper[hopperSlot!]!;
+        return slot.y <= at.y + 0.5 && Math.hypot(slot.x - at.x, slot.y - at.y) < reach;
+      });
+      const above = near.filter(({ hopperSlot }) => hopper[hopperSlot!]!.y < at.y - 0.5);
+      const pick = (above.length ? above : near).reduce<RunMarble | null>(
+        (best, next) =>
+          !best || Math.abs(hopper[next.hopperSlot!]!.x - at.x) < Math.abs(hopper[best.hopperSlot!]!.x - at.x)
+            ? next
+            : best,
+        null,
+      );
+      if (!pick) return;
+      const vacated: number = pick.hopperSlot!;
+      pick.hopperSlot = gap;
+      waiting = waiting.filter((other) => other !== pick);
+      gap = vacated;
+    }
   }
 
   private fly(marble: RunMarble, dt: number): DropEvent[] {

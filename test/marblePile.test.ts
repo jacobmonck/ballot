@@ -43,6 +43,13 @@ describe("MarblePile", () => {
     expect(pile.marbles).toEqual([]);
   });
 
+  it("keeps absorbed hopper marbles gold", () => {
+    const pile = new MarblePile();
+    pile.resize(800, 600);
+    pile.absorb([{ x: 400, y: 100, radius: 10, side: null }]);
+    expect(pile.marbles[0]!.flip).toBe(0);
+  });
+
   it("hands over the settled pile and keeps what's already draining", () => {
     const pile = new MarblePile();
     pile.resize(800, 600);

@@ -82,7 +82,7 @@ export class MarblePile {
         leaving: false,
         landed: true,
         side,
-        flip: 1,
+        flip: side ? 1 : 0,
       });
     }
   }
