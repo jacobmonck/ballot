@@ -10,6 +10,7 @@
     "build": "vite build",
     "preview": "vite build && wrangler dev",
     "deploy": "vite build && wrangler deploy",
+    "postinstall": "wrangler types",
     "types": "wrangler types",
     "typecheck": "tsc -p tsconfig.worker.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run",

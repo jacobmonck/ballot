@@ -71,7 +71,7 @@ cut line.
   <img src="docs/previews/results.png" alt="Results ranking PNMs by percentage with a cut line at 6" width="49%">
 </p>
 
-Screenshots use made-up people from `sample-pnms.csv` and simulated voters.
+Screenshots use made-up people from `docs/sample-pnms.csv` and simulated voters.
 
 ## How it works
 
@@ -110,7 +110,7 @@ bun run preview     # builds the site and serves everything at http://localhost:
 For front-end work, run `bun run dev:worker` and `bun run dev` in two terminals. Vite
 serves the site and proxies `/api` to the Worker. `bun run dev` alone can't reach the API.
 
-To try a full room, paste `sample-pnms.csv` into the host screen, then fill the room with
+To try a full room, paste `docs/sample-pnms.csv` into the host screen, then fill the room with
 fake brothers who vote on whatever is on screen:
 
 ```sh
