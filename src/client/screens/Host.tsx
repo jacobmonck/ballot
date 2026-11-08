@@ -16,7 +16,7 @@ import { Results } from "./Results";
 type Send = (message: ClientMessage) => void;
 
 // Tall enough for the header and 12 rows; the rest scroll. Row and header heights are set on the table.
-const LIST_MAX_HEIGHT = "max-h-[calc(2.25rem+12*2.75rem)]";
+const LIST_MAX_HEIGHT = "max-h-[calc(2.5rem+12*2.75rem)]";
 
 export function Host() {
   const code = useParams().code!.toUpperCase();
@@ -91,29 +91,88 @@ function KeyPrompt({ error, onSubmit }: { error: string | null; onSubmit: (key: 
 
 function Panel({ room, send }: { room: Snapshot; send: Send }) {
   return (
-    <div className="mx-auto grid max-w-6xl grid-cols-[minmax(0,1fr)] gap-8 px-5 py-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1fr)_21rem]">
-      <div className="min-w-0">
-        {room.hostOnly && <PhotoImport code={room.code} hostKey={room.hostOnly.hostKey} pnms={room.pnms} />}
-        {room.phase === "setup" ? (
-          <>
-            <ImportPanel pnms={room.pnms} onImport={(pnms) => send({ type: "importPnms", pnms })} />
-            {room.pnms.length > 0 && (
-              <button
-                type="button"
-                className="btn btn-lg btn-primary mt-6"
-                onClick={() => send({ type: "setFocus", pnmId: room.pnms[0]!.id })}
-              >
-                Start voting on {room.pnms[0]!.name}
-              </button>
-            )}
-          </>
-        ) : (
-          <LiveList room={room} send={send} />
-        )}
-        <Members room={room} send={send} />
+    <div className="mx-auto max-w-6xl px-5 py-6 sm:px-8 sm:py-8">
+      <RoomHeader room={room} send={send} />
+      <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_21rem]">
+        <div className="min-w-0 space-y-5">
+          {room.hostOnly && <PhotoImport code={room.code} hostKey={room.hostOnly.hostKey} pnms={room.pnms} />}
+          {room.phase === "setup" ? <Setup room={room} send={send} /> : <LiveList room={room} send={send} />}
+        </div>
+        <Sidebar room={room} send={send} />
       </div>
-      <Sidebar room={room} send={send} />
     </div>
+  );
+}
+
+function RoomHeader({ room, send }: { room: Snapshot; send: Send }) {
+  // The key sits in the fragment, so it never reaches a server log or a Referer header.
+  const projectorUrl = `${location.origin}/p/${room.code}#${room.hostOnly?.projectorKey}`;
+  const focused = room.pnms.find(({ id }) => id === room.focusPnmId);
+  const status = room.revote
+    ? `Revote: ${room.revote.pnmIds.length} tied for ${room.revote.spots} ${room.revote.spots === 1 ? "spot" : "spots"}`
+    : room.phase === "live" && focused
+      ? `Voting on PNM ${focused.ordinal} of ${room.pnmCount}`
+      : "Setting up";
+
+  return (
+    <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 border-b border-hairline pb-5">
+      <div>
+        <p className="type-caption text-chalk">Join at {location.host} with code</p>
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <p className="type-code text-[2.75rem]">{room.code}</p>
+          <p className="text-chalk tabular-nums">{status}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <a className="btn btn-secondary" href={projectorUrl} target="_blank" rel="noreferrer">
+          Open projector view
+        </a>
+        <a className="btn btn-secondary" href={`/r/${room.code}`} target="_blank" rel="noreferrer">
+          Open my ballot
+        </a>
+        {room.phase === "live" && (
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={() => {
+              if (confirm("End voting for everyone? Votes freeze and this cannot be undone.")) {
+                send({ type: "endSession" });
+              }
+            }}
+          >
+            End voting
+          </button>
+        )}
+      </div>
+    </header>
+  );
+}
+
+function Setup({ room, send }: { room: Snapshot; send: Send }) {
+  const first = room.pnms[0];
+  const brothers = room.members.length;
+  return (
+    <>
+      {first && (
+        <section className="panel flex flex-wrap items-center justify-between gap-4 p-5">
+          <div className="min-w-0">
+            <h1 className="type-title">{room.pnms.length} PNMs ready</h1>
+            <p className="mt-1 text-chalk tabular-nums">
+              {brothers} {brothers === 1 ? "brother" : "brothers"} joined.{" "}
+              {room.budgetIsDefault ? "No class size set." : `Class size ${room.yesBudget}.`}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-lg btn-primary"
+            onClick={() => send({ type: "setFocus", pnmId: first.id })}
+          >
+            Start voting on {first.name}
+          </button>
+        </section>
+      )}
+      <ImportPanel pnms={room.pnms} onImport={(pnms) => send({ type: "importPnms", pnms })} />
+    </>
   );
 }
 
@@ -196,17 +255,17 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
       <motion.div
         ref={list}
         layoutScroll
-        className={`mt-5 overflow-y-auto overscroll-contain ${LIST_MAX_HEIGHT} ${moreBelow ? "scroll-fade" : ""}`}
+        className={`mt-4 overflow-y-auto overscroll-contain rounded-[1.25rem] bg-stage-deep ${LIST_MAX_HEIGHT} ${moreBelow ? "scroll-fade" : ""}`}
         onScroll={updateMoreBelow}
       >
-        <table className="isolate w-full border-separate border-spacing-0 text-left">
+        <table className="isolate w-full table-fixed border-separate border-spacing-0 text-left">
           <thead className="type-caption text-chalk">
-            <tr className="[&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:h-9 [&>th]:bg-stage">
-              <th className="pr-3 pl-3 font-medium">PNM</th>
+            <tr className="[&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:h-10 [&>th]:bg-stage-deep">
+              <th className="pr-3 pl-4 font-medium">PNM</th>
               <th className="w-14 text-right font-medium">Yes</th>
               <th className="w-14 text-right font-medium">No</th>
               <th className="hidden w-16 text-right font-medium sm:table-cell">Blank</th>
-              <th className="w-36" />
+              <th className="w-16 sm:w-36" />
             </tr>
           </thead>
           <tbody>
@@ -214,8 +273,8 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
               const { yes, no } = tallies[pnm.id] ?? { yes: 0, no: 0 };
               const isFocus = pnm.id === room.focusPnmId;
               return (
-                <tr key={pnm.id} className="relative h-11 tabular-nums" data-focus={isFocus || undefined}>
-                  <td className="pr-3 pl-3 wrap-anywhere">
+                <tr key={pnm.id} className="group relative h-11 tabular-nums" data-focus={isFocus || undefined}>
+                  <td className="truncate pr-3 pl-4" title={pnm.name}>
                     {isFocus && (
                       <motion.span
                         layoutId="focus-row"
@@ -229,16 +288,21 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
                   <td className="text-right font-semibold">{yes}</td>
                   <td className="text-right font-semibold">{no}</td>
                   <td className="hidden text-right text-chalk sm:table-cell">{ballots - yes - no}</td>
-                  <td className="pr-3 text-right">
+                  <td className="pr-4 text-right">
                     {isFocus ? (
-                      <span className="type-caption text-brass">On screen</span>
+                      <span className="type-caption text-brass">
+                        <span className="sm:hidden">Now</span>
+                        <span className="hidden sm:inline">On screen</span>
+                      </span>
                     ) : (
                       <button
                         type="button"
-                        className="link type-caption"
+                        className="link type-caption opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+                        aria-label={`Put ${pnm.name} on screen`}
                         onClick={() => send({ type: "setFocus", pnmId: pnm.id })}
                       >
-                        Put on screen
+                        <span className="sm:hidden">Show</span>
+                        <span className="hidden sm:inline">Put on screen</span>
                       </button>
                     )}
                   </td>
@@ -253,65 +317,38 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
 }
 
 function Sidebar({ room, send }: { room: Snapshot; send: Send }) {
-  // The key sits in the fragment, so it never reaches a server log or a Referer header.
-  const projectorUrl = `${location.origin}/p/${room.code}#${room.hostOnly?.projectorKey}`;
   return (
     <aside className="space-y-3 lg:sticky lg:top-8 lg:self-start">
-      <section className="panel p-5">
-        <h2 className="type-caption text-chalk">Room code</h2>
-        <p className="type-code mt-1 text-[3.25rem]">{room.code}</p>
-        <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1">
-          <a className="link" href={projectorUrl} target="_blank" rel="noreferrer">
-            Open projector view
-          </a>
-          <a className="link" href={`/r/${room.code}`} target="_blank" rel="noreferrer">
-            Open my ballot
-          </a>
-        </div>
-      </section>
-
+      <Members room={room} send={send} />
       {room.pnmCount > 0 && !room.revote && <BudgetSetting room={room} send={send} />}
-
       <HostKey hostKey={room.hostOnly?.hostKey ?? ""} />
-
-      {room.phase === "live" && (
-        <button
-          type="button"
-          className="btn btn-danger w-full"
-          onClick={() => {
-            if (confirm("End voting for everyone? Votes freeze and this cannot be undone.")) {
-              send({ type: "endSession" });
-            }
-          }}
-        >
-          End voting
-        </button>
-      )}
     </aside>
   );
 }
 
 function Members({ room, send }: { room: Snapshot; send: Send }) {
   return (
-    <section className="panel mt-5 p-5">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="type-headline">{room.members.length} in the room</h2>
-        <button
-          type="button"
-          className="btn btn-sm btn-secondary"
-          aria-pressed={room.joinLocked}
-          onClick={() => send({ type: "setJoinLocked", locked: !room.joinLocked })}
-        >
-          {room.joinLocked ? "Open to new names" : "Close to new names"}
-        </button>
+    <section className="panel p-5">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <h2 className="type-headline tabular-nums">{room.members.length} in the room</h2>
+        {(room.members.length > 0 || room.joinLocked) && (
+          <button
+            type="button"
+            className="link type-caption"
+            aria-pressed={room.joinLocked}
+            onClick={() => send({ type: "setJoinLocked", locked: !room.joinLocked })}
+          >
+            {room.joinLocked ? "Open to new names" : "Close to new names"}
+          </button>
+        )}
       </div>
       {room.joinLocked && (
-        <p className="type-caption mb-3 text-brass">Closed. Brothers already here can still come back.</p>
+        <p className="type-caption mt-1 text-brass">Closed. Brothers already here can still come back.</p>
       )}
       {room.members.length === 0 ? (
-        <p className="text-chalk">Names appear here as brothers join.</p>
+        <p className="mt-2 text-chalk">Names appear here as brothers join.</p>
       ) : (
-        <motion.div layoutScroll className="max-h-56 overflow-y-auto overscroll-contain">
+        <motion.div layoutScroll className="mt-3 max-h-56 overflow-y-auto overscroll-contain">
           <MemberList
             members={room.members}
             onKick={(member) => {
@@ -338,14 +375,14 @@ function BudgetSetting({ room, send }: { room: Snapshot; send: Send }) {
   return (
     <section className="panel p-5">
       <form onSubmit={apply}>
-        <label className="type-headline">
-          Class size
-          <div className="mt-2 flex gap-2">
+        <label className="flex items-center justify-between gap-3">
+          <span className="type-headline">Class size</span>
+          <span className="flex gap-2">
             <input
               type="number"
               min={1}
               max={room.pnmCount}
-              className="field w-24 py-2 font-normal"
+              className="field w-20 py-2 font-normal"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               required
@@ -353,7 +390,7 @@ function BudgetSetting({ room, send }: { room: Snapshot; send: Send }) {
             <button type="submit" className="btn btn-secondary">
               Set size
             </button>
-          </div>
+          </span>
         </label>
       </form>
       <p className="type-caption mt-2 text-chalk">
@@ -375,9 +412,14 @@ function BudgetSetting({ room, send }: { room: Snapshot; send: Send }) {
 function HostKey({ hostKey }: { hostKey: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <section className="panel p-5">
-      <h2 className="type-headline">Host key</h2>
-      <p className="type-caption mt-1 text-chalk">Save this. If this device dies, paste it on another one to keep running the room.</p>
+    <details className="panel group p-5">
+      <summary className="type-headline flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
+        Host key
+        <svg viewBox="0 0 12 12" className="size-3 text-chalk transition-transform group-open:rotate-180" aria-hidden="true">
+          <path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </summary>
+      <p className="type-caption mt-2 text-chalk">Save this. If this device dies, paste it on another one to keep running the room.</p>
       <div className="mt-3 flex items-center gap-2">
         <code className="min-w-0 flex-1 truncate rounded-lg bg-black/25 px-2.5 py-2 text-sm">{hostKey}</code>
         <button
@@ -390,6 +432,6 @@ function HostKey({ hostKey }: { hostKey: string }) {
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-    </section>
+    </details>
   );
 }
