@@ -152,14 +152,25 @@ export class VotingRoom extends DurableObject<Env> {
   private readonly socketUse = new WeakMap<WebSocket, { windowStart: number; messages: number }>();
   private roomUpdate: ReturnType<typeof setTimeout> | null = null;
   private membersChanged = false;
+  // Tables only exist once a room is claimed, so looking up an unused code leaves no storage behind.
+  private hasTables = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     ctx.blockConcurrencyWhile(async () => {
+      this.hasTables =
+        this.sql.exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'room'").toArray().length > 0;
+      if (!this.hasTables) return;
       migrate(this.sql);
+      // Lookups used to create tables for codes nobody claimed. Those are erased when next touched.
+      if (!this.roomOrNull()) {
+        await ctx.storage.deleteAll();
+        this.hasTables = false;
+        return;
+      }
       // Rooms from before retention existed have no expiry yet.
-      if (this.roomOrNull() && (await ctx.storage.getAlarm()) === null) this.keepAlive();
+      if ((await ctx.storage.getAlarm()) === null) this.keepAlive();
     });
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -167,6 +178,8 @@ export class VotingRoom extends DurableObject<Env> {
   // Sets up a fresh room. Returns false if the code is already taken.
   async claim(code: string, hostKey: string, projectorKey: string): Promise<boolean> {
     if (this.roomOrNull()) return false;
+    migrate(this.sql);
+    this.hasTables = true;
     this.sql.exec(
       "INSERT INTO room (id, code, host_key, projector_key, phase, created_at) VALUES (1, ?, ?, ?, 'setup', ?)",
       code,
@@ -181,9 +194,9 @@ export class VotingRoom extends DurableObject<Env> {
   // PNM answers and photos are personal data, so a room is erased after a month without use.
   async alarm(): Promise<void> {
     for (const socket of this.ctx.getWebSockets()) socket.close(1000, "room expired");
-    await this.deletePhotos();
+    if (this.hasTables) await this.deletePhotos();
     await this.ctx.storage.deleteAll();
-    migrate(this.sql);
+    this.hasTables = false;
   }
 
   // Lets the Worker reject unknown codes before opening a socket.
@@ -193,7 +206,8 @@ export class VotingRoom extends DurableObject<Env> {
 
   // The Drive address a host may copy into storage, or why they can't.
   async photoSource(hostKey: string, pnmId: string): Promise<string> {
-    if (!timingSafeEqual(hostKey, this.room().host_key)) return "forbidden";
+    const room = this.roomOrNull();
+    if (!room || !timingSafeEqual(hostKey, room.host_key)) return "forbidden";
     const row = this.sql
       .exec<{ photo_url: string | null }>("SELECT photo_url FROM pnm WHERE id = ?", pnmId)
       .toArray()[0];
@@ -202,7 +216,8 @@ export class VotingRoom extends DurableObject<Env> {
 
   // Swaps a Drive address for the stored copy, unless the host replaced the PNMs in the meantime.
   async savePhoto(hostKey: string, pnmId: string, source: string, photoUrl: string): Promise<boolean> {
-    if (!timingSafeEqual(hostKey, this.room().host_key)) return false;
+    const room = this.roomOrNull();
+    if (!room || !timingSafeEqual(hostKey, room.host_key)) return false;
     const { rowsWritten } = this.sql.exec(
       "UPDATE pnm SET photo_url = ? WHERE id = ? AND photo_url = ?",
       photoUrl,
@@ -593,6 +608,7 @@ export class VotingRoom extends DurableObject<Env> {
   }
 
   private roomOrNull(): RoomRow | undefined {
+    if (!this.hasTables) return undefined;
     return this.sql.exec<RoomRow>("SELECT * FROM room").toArray()[0];
   }
 

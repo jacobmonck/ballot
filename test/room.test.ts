@@ -2,6 +2,7 @@ import { SELF, env, evictDurableObject, runDurableObjectAlarm, runInDurableObjec
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { VotingRoom } from "../src/worker/room";
 import { CLOSE_KICKED } from "../src/shared/protocol";
+import { migrate } from "../src/worker/schema";
 import {
   connect,
   createRoom,
@@ -867,7 +868,31 @@ describe("abuse limits", () => {
   });
 });
 
+// Tables a room has written, leaving out the runtime's own.
+function tableCount(stub: DurableObjectStub<VotingRoom>) {
+  return runInDurableObject(stub, (_, state) => {
+    return state.storage.sql
+      .exec<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '_cf_%'",
+      )
+      .one().count;
+  });
+}
+
 describe("retention", () => {
+  it("leaves no storage behind when someone looks up an unused code", async () => {
+    expect((await SELF.fetch("https://voting.test/api/rooms/YYYYYY")).status).toBe(404);
+    expect(await tableCount(env.ROOM.getByName("YYYYYY"))).toBe(0);
+  });
+
+  it("erases a leftover empty room from before lookups stopped creating tables", async () => {
+    const stub = env.ROOM.getByName("WWWWWW");
+    await runInDurableObject(stub, (_, state) => migrate(state.storage.sql));
+    await evictDurableObject(stub);
+    expect(await stub.exists()).toBe(false);
+    expect(await tableCount(stub)).toBe(0);
+  });
+
   it("sets a room to expire a month after its last use", async () => {
     const { code, host } = await seededRoom(1);
     const stub = env.ROOM.getByName(code);
@@ -890,10 +915,7 @@ describe("retention", () => {
     expect(await stub.exists()).toBe(false);
     const response = await SELF.fetch(`https://voting.test/api/rooms/${code}`);
     expect(response.status).toBe(404);
-    const count = await runInDurableObject(stub, (_, state) => {
-      return state.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM pnm").one().count;
-    });
-    expect(count).toBe(0);
+    expect(await tableCount(stub)).toBe(0);
     expect(await stub.claim(code, "new-host", "new-projector")).toBe(true);
   });
 });
@@ -924,7 +946,7 @@ describe("photo import", () => {
       headers: { Authorization: `Bearer ${hostKey}` },
     });
 
-  it("copies a Drive photo into storage and serves it with a long cache", async () => {
+  it("copies a Drive photo into storage and keeps it out of the browser's disk cache", async () => {
     const { code, hostKey, host, pnmId } = await driveRoom();
     answerFromDrive(() => new Response(JPEG, { headers: { "Content-Type": "image/jpeg" } }));
 
@@ -937,7 +959,7 @@ describe("photo import", () => {
     const photo = await SELF.fetch(`https://voting.test${photoUrl}`);
     expect(photo.status).toBe(200);
     expect(photo.headers.get("Content-Type")).toBe("image/jpeg");
-    expect(photo.headers.get("Cache-Control")).toContain("immutable");
+    expect(photo.headers.get("Cache-Control")).toBe("private, no-store");
     expect(new Uint8Array(await photo.arrayBuffer())).toEqual(JPEG);
 
     expect((await save(code, pnmId, hostKey)).status).toBe(404);
@@ -955,6 +977,12 @@ describe("photo import", () => {
     const { code, hostKey, pnmId } = await driveRoom();
     answerFromDrive(() => new Response("slow down", { status: 429 }));
     expect(await (await save(code, pnmId, hostKey)).json()).toEqual({ status: "unavailable" });
+  });
+
+  it("refuses a photo for a room that doesn't exist", async () => {
+    const download = answerFromDrive(() => new Response(JPEG));
+    expect((await save("YYYYYZ", crypto.randomUUID(), "key")).status).toBe(403);
+    expect(download).not.toHaveBeenCalled();
   });
 
   it("refuses the wrong host key without calling Drive", async () => {
