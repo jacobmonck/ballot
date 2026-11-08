@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flick and Pegboard</title>
+<style>
+  :root {
+    --stage: #1a1a1c; --stage-deep: #0f0f11; --stage-lift: #2c2c2f;
+    --ivory: #f7f4ec; --ink: #10130f; --chalk: #aeaca7; --brass: #e3c16f;
+    --hairline: rgb(247 244 236 / 0.1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: radial-gradient(120% 75% at 50% -12%, #333230 0%, var(--stage) 48%, var(--stage-deep) 100%) fixed, var(--stage-deep);
+    color: var(--ivory);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    line-height: 1.45;
+    padding: 24px 16px 64px;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+  h1, h2 { font-family: ui-rounded, -apple-system, sans-serif; letter-spacing: -0.01em; margin: 0; }
+  h1 { font-size: 1.6rem; }
+  h2 { font-size: 1.25rem; }
+  p { margin: 0; }
+  .muted { color: var(--chalk); }
+  .small { font-size: 0.85rem; }
+  .eyebrow { color: var(--brass); font-size: 0.75rem; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
+  header { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; margin-bottom: 28px; }
+  button { font: inherit; cursor: pointer; }
+  .btn { border: 0; border-radius: 999px; padding: 9px 16px; font-weight: 600; font-size: 0.9rem; background: var(--stage-lift); color: var(--ivory); box-shadow: inset 0 0 0 1px var(--hairline); }
+  .btn:hover { box-shadow: inset 0 0 0 1px rgb(247 244 236 / 0.3); }
+  .btn.primary { background: var(--ivory); color: var(--ink); }
+  .btn.on { box-shadow: inset 0 0 0 2px var(--brass); }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  section { margin-bottom: 56px; }
+  .section-head { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+  .stagebox { background: #0b0b0d; border-radius: 14px; box-shadow: inset 0 0 0 1px var(--hairline), 0 10px 30px rgb(0 0 0 / 0.35); overflow: hidden; position: relative; }
+  .stagebox canvas { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; }
+  .label-tag { position: absolute; top: 10px; left: 12px; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--chalk); }
+
+  /* Idea 2 layout */
+  .flick-grid { display: grid; grid-template-columns: 300px 1fr; gap: 24px; align-items: start; }
+  @media (max-width: 820px) { .flick-grid { grid-template-columns: 1fr; justify-items: center; } .flick-grid .stagebox { width: 100%; } }
+
+  .phone { width: 300px; height: 600px; border-radius: 40px; background: var(--stage); box-shadow: inset 0 0 0 1px var(--hairline), 0 0 0 8px #050506, 0 20px 50px rgb(0 0 0 / 0.5); position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .phone .notch { position: absolute; top: 10px; left: 50%; width: 90px; height: 24px; margin-left: -45px; border-radius: 12px; background: #050506; }
+  .pnm { padding: 52px 22px 0; text-align: center; }
+  .avatar { width: 112px; height: 112px; margin: 0 auto 12px; border-radius: 50%; background: linear-gradient(140deg, #6b6252, #2d2a25); display: grid; place-items: center; font-family: ui-rounded, sans-serif; font-size: 2.2rem; font-weight: 700; color: rgb(247 244 236 / 0.8); box-shadow: 0 0 0 3px rgb(227 193 111 / 0.35); }
+  .pnm .name { font-family: ui-rounded, sans-serif; font-size: 1.3rem; font-weight: 700; }
+  .answers { margin-top: 14px; text-align: left; display: grid; gap: 8px; }
+  .answers div { background: var(--stage-lift); border-radius: 10px; padding: 8px 10px; font-size: 0.78rem; color: var(--chalk); }
+  .answers b { color: var(--ivory); font-weight: 600; display: block; font-size: 0.72rem; letter-spacing: 0.04em; }
+
+  .slot { position: absolute; left: 50%; top: 342px; width: 120px; height: 12px; margin-left: -60px; border-radius: 6px; background: #050506; box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.9), 0 1px 0 rgb(247 244 236 / 0.12); opacity: 0; transition: opacity 250ms; }
+  .slot.show { opacity: 1; }
+  .hint { position: absolute; left: 0; right: 0; top: 362px; text-align: center; font-size: 0.8rem; color: var(--brass); opacity: 0; transition: opacity 250ms; }
+  .hint.show { opacity: 1; }
+  .hint .arrow { display: block; font-size: 1.1rem; line-height: 1; animation: nudge 1.2s ease-in-out infinite; }
+  @keyframes nudge { 0%, 100% { transform: translateY(0); opacity: 0.6; } 50% { transform: translateY(-6px); opacity: 1; } }
+
+  .ballot { position: absolute; left: 0; right: 0; bottom: 70px; height: 110px; }
+  .marble { position: absolute; top: 12px; width: 88px; height: 88px; border-radius: 50%; display: grid; place-items: center; font-family: ui-rounded, sans-serif; font-weight: 700; font-size: 1.6rem; border: 0; padding: 0; transition: transform 380ms cubic-bezier(.2,.9,.3,1.2), opacity 300ms, left 380ms cubic-bezier(.2,.9,.3,1.1); touch-action: none; }
+  .marble.yes { left: 62px; background: radial-gradient(ellipse 34% 22% at 34% 27%, #fff 40%, rgb(255 255 255 / 0) 100%), radial-gradient(circle at 68% 74%, rgb(255 246 222 / 0.7), rgb(255 246 222 / 0) 42%), radial-gradient(circle at 34% 28%, #fff 0%, #efe9da 42%, #a9a18c 100%); color: var(--ink); box-shadow: inset 0 0 0.35em rgb(84 74 52 / 0.4), 0 0.2em 0.6em rgb(0 0 0 / 0.38); }
+  .marble.no { left: 150px; background: radial-gradient(ellipse 20% 11% at 33% 24%, rgb(244 246 238 / 0.7) 20%, rgb(244 246 238 / 0) 100%), radial-gradient(circle at 68% 74%, rgb(150 158 142 / 0.4), rgb(150 158 142 / 0) 42%), radial-gradient(circle at 34% 28%, #4d5249 0%, #191c17 42%, #050604 100%); color: var(--ivory); box-shadow: inset 0 0 0 1px rgb(245 241 230 / 0.3), 0 0.2em 0.6em rgb(0 0 0 / 0.38); }
+  .marble.chosen { left: 106px; transform: scale(1.08); z-index: 2; cursor: grab; }
+  .marble.away { opacity: 0; transform: scale(0.6); pointer-events: none; }
+  .marble.dragging { transition: none; cursor: grabbing; }
+  .marble.launch { transition: transform 360ms cubic-bezier(.5,0,.9,.4), opacity 360ms ease-in; opacity: 0; }
+  .cast { position: absolute; left: 0; right: 0; bottom: 92px; text-align: center; opacity: 0; transition: opacity 300ms 200ms; pointer-events: none; }
+  .cast.show { opacity: 1; pointer-events: auto; }
+  .cast .mini { width: 26px; height: 26px; border-radius: 50%; margin: 0 auto 8px; background: radial-gradient(circle at 34% 28%, #fff0bf 0%, #dcb456 42%, #7c5a18 100%); box-shadow: 0 2px 6px rgb(0 0 0 / 0.4); }
+  .cast button { background: none; border: 0; color: var(--chalk); text-decoration: underline; font-size: 0.8rem; margin-top: 6px; }
+  .phone-foot { position: absolute; bottom: 26px; left: 0; right: 0; text-align: center; font-size: 0.75rem; color: var(--chalk); }
+
+  .counter { position: absolute; top: 10px; right: 14px; text-align: right; }
+  .counter .num { font-family: ui-rounded, sans-serif; font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .notes { margin-top: 14px; display: grid; gap: 4px; }
+
+  /* Sound gate */
+  .gate { position: fixed; inset: 0; background: rgb(8 8 10 / 0.82); backdrop-filter: blur(6px); display: grid; place-items: center; z-index: 50; padding: 16px; }
+  .gate.hide { display: none; }
+  .gate .card { background: var(--stage); border-radius: 18px; padding: 28px; max-width: 380px; text-align: center; box-shadow: inset 0 0 0 1px var(--hairline); }
+  .gate .card p { margin: 10px 0 20px; }
+
+  .result { position: absolute; left: 0; right: 0; bottom: 14%; text-align: center; pointer-events: none; opacity: 0; transform: translateY(10px); transition: opacity 500ms, transform 500ms; }
+  .result.show { opacity: 1; transform: none; }
+  .result .big { font-family: ui-rounded, sans-serif; font-size: clamp(1.4rem, 4vw, 2.6rem); font-weight: 700; text-shadow: 0 2px 20px rgb(0 0 0 / 0.8); }
+</style>
+</head>
+<body>
+<div class="gate" id="gate">
+  <div class="card">
+    <div class="eyebrow">Sound check</div>
+    <h2 style="margin-top:6px">Turn your volume up</h2>
+    <p class="muted small">Browsers keep audio off until you click, so this button starts the sound for both demos.</p>
+    <button class="btn primary" id="soundOn">Start with sound</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Throwaway spike</div>
+      <h1>Flick to vote, and the pegboard reveal</h1>
+    </div>
+    <div class="row">
+      <span class="muted small">Sound</span>
+      <button class="btn on" id="muteBtn">On</button>
+    </div>
+  </header>
+
+  <section>
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Idea 2</div>
+        <h2>Flick your marble in</h2>
+      </div>
+      <div class="row">
+        <button class="btn" id="simBtn">Simulate the room</button>
+        <button class="btn" id="resetFlick">Reset</button>
+      </div>
+    </div>
+    <div class="flick-grid">
+      <div class="phone" id="phone">
+        <div class="notch"></div>
+        <div class="pnm">
+          <div class="avatar">AR</div>
+          <div class="name">Alex Rivera</div>
+          <div class="muted small">Sophomore · Mechanical Engineering</div>
+          <div class="answers">
+            <div><b>WHY THIS CHAPTER</b>The people I met at the cookout felt like home.</div>
+          </div>
+        </div>
+        <div class="slot" id="slot"></div>
+        <div class="hint" id="hint"><span class="arrow">↑</span>Flick it up to cast</div>
+        <div class="ballot" id="ballot">
+          <button class="marble yes" id="mYes" type="button">Yes</button>
+          <button class="marble no" id="mNo" type="button">No</button>
+        </div>
+        <div class="cast" id="cast">
+          <div class="mini"></div>
+          <div class="small">Your marble is in</div>
+          <button type="button" id="redo">Change my vote</button>
+        </div>
+        <div class="phone-foot" id="phoneFoot">Tap Yes or No</div>
+      </div>
+      <div>
+        <div class="stagebox">
+          <span class="label-tag">Projector</span>
+          <div class="counter"><div class="num" id="flickCount">0 / 40</div><div class="muted small">ballots in</div></div>
+          <canvas id="flickCanvas"></canvas>
+        </div>
+        <div class="notes muted small">
+          <p>Your marble turns gold the moment it leaves the phone, and it lands on the projector with the same clack as everyone else's, so the room can't tell which way you voted.</p>
+          <p>The clack climbs in pitch as the pile grows.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">Idea 6</div>
+        <h2>Pegboard reveal</h2>
+      </div>
+      <div class="row">
+        <button class="btn on" data-preset="27,13">27–13</button>
+        <button class="btn" data-preset="21,19">Close: 21–19</button>
+        <button class="btn" data-preset="50,12">Big room: 50–12</button>
+        <button class="btn" id="slowFinish">Slow finish: on</button>
+        <button class="btn primary" id="revealBtn">Reveal</button>
+      </div>
+    </div>
+    <div class="stagebox">
+      <span class="label-tag">Projector</span>
+      <canvas id="pegCanvas"></canvas>
+      <div class="result" id="result"><div class="big" id="resultText"></div></div>
+    </div>
+    <div class="notes muted small">
+      <p>Each marble turns white or black as it leaves the hopper, then rattles down the pegs. The outcome is fixed before the first drop: the pegs only add the bounce, and every marble ends up in its own bin.</p>
+      <p>With slow finish on, the last few marbles fall more slowly, which matters most when the vote is close.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+// ---------- Sound ----------
+const Sound = (() => {
+  let ctx = null, out = null, noise = null, muted = false;
+  let lastTick = 0;
+  function init() {
+    if (ctx) return;
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.ratio.value = 4;
+    out = ctx.createGain(); out.gain.value = 0.9;
+    out.connect(comp).connect(ctx.destination);
+    noise = ctx.createBuffer(1, ctx.sampleRate * 1, ctx.sampleRate);
+    const d = noise.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const ready = () => ctx && !muted;
+  function ping(freq, vol, decay, t, type = "sine") {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+    o.connect(g).connect(out); o.start(t); o.stop(t + decay + 0.02);
+  }
+  function burst(vol, decay, t, filterType, freq, q = 1) {
+    const s = ctx.createBufferSource(); s.buffer = noise;
+    const f = ctx.createBiquadFilter(); f.type = filterType; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+    s.connect(f).connect(g).connect(out);
+    s.start(t, Math.random() * 0.5); s.stop(t + decay + 0.02);
+  }
+  return {
+    init,
+    setMuted(m) { muted = m; },
+    // Glass marble landing on the pile. pitch 0..1 climbs as it fills.
+    clack(pitch = 0, vol = 1) {
+      if (!ready()) return;
+      const t = ctx.currentTime;
+      const base = 1500 * Math.pow(2, pitch * 1.1) * (0.96 + Math.random() * 0.08);
+      ping(base, 0.32 * vol, 0.09, t);
+      ping(base * 2.76, 0.14 * vol, 0.05, t);
+      ping(base * 5.4, 0.06 * vol, 0.03, t);
+      burst(0.25 * vol, 0.02, t, "highpass", 3000);
+      // Second softer tap as it settles.
+      const t2 = t + 0.06 + Math.random() * 0.04;
+      ping(base * 1.06, 0.12 * vol, 0.05, t2);
+    },
+    // Quick high tick for a peg hit.
+    tick(vol = 1) {
+      if (!ready()) return;
+      const t = ctx.currentTime;
+      if (t - lastTick < 0.018) return;
+      lastTick = t;
+      const f = 2600 + Math.random() * 1400;
+      ping(f, 0.16 * vol, 0.035, t, "triangle");
+      burst(0.08 * vol, 0.012, t, "highpass", 5000);
+    },
+    // Marble dropping into a bin.
+    thud(side, vol = 1) {
+      if (!ready()) return;
+      const t = ctx.currentTime;
+      const f = side === "yes" ? 880 : 620;
+      ping(f * (0.97 + Math.random() * 0.06), 0.28 * vol, 0.14, t);
+      ping(f * 2.4, 0.08 * vol, 0.06, t);
+      burst(0.18 * vol, 0.05, t, "lowpass", 900);
+    },
+    // Hopper letting one go.
+    tock() {
+      if (!ready()) return;
+      const t = ctx.currentTime;
+      ping(420, 0.12, 0.08, t, "triangle");
+      burst(0.06, 0.03, t, "bandpass", 1200, 2);
+    },
+    whoosh() {
+      if (!ready()) return;
+      const t = ctx.currentTime;
+      const s = ctx.createBufferSource(); s.buffer = noise;
+      const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.Q.value = 1.4;
+      f.frequency.setValueAtTime(500, t); f.frequency.exponentialRampToValueAtTime(3200, t + 0.32);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.12); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+      s.connect(f).connect(g).connect(out); s.start(t); s.stop(t + 0.4);
+    },
+    // Result locks in: a soft bell chord.
+    bell() {
+      if (!ready()) return;
+      const t = ctx.currentTime;
+      [[392, 0.2], [587.3, 0.14], [784, 0.1], [1174.7, 0.05]].forEach(([f, v], i) => {
+        ping(f, v, 2.8 - i * 0.4, t + i * 0.015);
+      });
+      ping(98, 0.25, 1.6, t);
+    },
+  };
+})();
+
+const gate = document.getElementById("gate");
+document.getElementById("soundOn").onclick = () => { Sound.init(); gate.classList.add("hide"); };
+const muteBtn = document.getElementById("muteBtn");
+muteBtn.onclick = () => {
+  const on = muteBtn.textContent === "On";
+  Sound.init(); Sound.setMuted(on);
+  muteBtn.textContent = on ? "Off" : "On"; muteBtn.classList.toggle("on", !on);
+};
+
+// ---------- Marble sprites (same finishes as the app) ----------
+const FINISH = {
+  gold: { body: ["#fff0bf", "#dcb456", "#7c5a18"], edge: "rgb(58 36 6 / 0.75)", bounce: "rgb(255 208 120 / 0.55)", gloss: "rgb(255 252 236 / 0.95)" },
+  yes: { body: ["#ffffff", "#efe9da", "#a9a18c"], edge: "rgb(84 74 52 / 0.55)", bounce: "rgb(255 246 222 / 0.7)", gloss: "rgb(255 255 255 / 1)" },
+  no: { body: ["#4d5249", "#191c17", "#050604"], edge: "rgb(0 0 0 / 0.8)", bounce: "rgb(150 158 142 / 0.4)", gloss: "rgb(244 246 238 / 0.9)", outline: "rgb(245 241 230 / 0.32)" },
+};
+function radial(c, x, y, a, b, stops) { const g = c.createRadialGradient(x, y, a, x, y, b); stops.forEach(([o, col]) => g.addColorStop(o, col)); return g; }
+function sprite({ body, edge, bounce, gloss, outline }) {
+  const S = 128, cv = document.createElement("canvas"); cv.width = cv.height = S;
+  const c = cv.getContext("2d"), m = S / 2, r = m - 1.5;
+  c.beginPath(); c.arc(m, m, r, 0, Math.PI * 2); c.save(); c.clip();
+  const lit = c.createRadialGradient(m * 0.7, m * 0.58, 0, m, m, r * 1.08);
+  lit.addColorStop(0, body[0]); lit.addColorStop(0.42, body[1]); lit.addColorStop(1, body[2]);
+  c.fillStyle = lit; c.fillRect(0, 0, S, S);
+  c.fillStyle = radial(c, m, m, r * 0.6, r, [[0, "rgb(0 0 0 / 0)"], [1, edge]]); c.fillRect(0, 0, S, S);
+  c.fillStyle = radial(c, m * 1.34, m * 1.46, 0, r * 0.62, [[0, bounce], [1, "rgb(0 0 0 / 0)"]]); c.fillRect(0, 0, S, S);
+  c.translate(m * 0.68, m * 0.56); c.rotate(-Math.PI / 5); c.scale(1, 0.62);
+  c.fillStyle = radial(c, 0, 0, 0, r * 0.42, [[0, gloss], [0.35, gloss], [1, "rgb(255 255 255 / 0)"]]);
+  c.globalAlpha = 0.6; c.fillRect(-S, -S, S * 2, S * 2); c.globalAlpha = 1;
+  c.fillStyle = radial(c, 0, 0, 0, r * 0.16, [[0, gloss], [0.6, gloss], [1, "rgb(255 255 255 / 0)"]]); c.fillRect(-S, -S, S * 2, S * 2);
+  c.restore();
+  if (outline) { c.beginPath(); c.arc(m, m, r - 0.5, 0, Math.PI * 2); c.strokeStyle = outline; c.lineWidth = 1.5; c.stroke(); }
+  return cv;
+}
+const SPR = { gold: sprite(FINISH.gold), yes: sprite(FINISH.yes), no: sprite(FINISH.no) };
+const SHADOW = (() => { const S = 128, cv = document.createElement("canvas"); cv.width = cv.height = S; const c = cv.getContext("2d"); c.fillStyle = radial(c, 64, 64, 29, 64, [[0, "rgb(0 0 0 / 0.5)"], [1, "rgb(0 0 0 / 0)"]]); c.fillRect(0, 0, S, S); return cv; })();
+
+function drawMarble(c, m) {
+  const { x, y, r } = m;
+  c.globalAlpha = 1;
+  if (m.flip < 1) c.drawImage(SPR.gold, x - r, y - r, r * 2, r * 2);
+  if (m.side && m.flip > 0) { c.globalAlpha = m.flip; c.drawImage(SPR[m.side], x - r, y - r, r * 2, r * 2); c.globalAlpha = 1; }
+}
+function drawShadow(c, m) { const R = m.r * 1.3; c.drawImage(SHADOW, m.x - R, m.y - R + m.r * 0.22, R * 2, R * 2); }
+
+// ---------- Tiny physics ----------
+const W = 960, H = 540;
+function setupCanvas(cv) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W * dpr; cv.height = H * dpr;
+  const c = cv.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0); return c;
+}
+
+function makeWorld(opts) {
+  return Object.assign({ marbles: [], pegs: [], gravity: 1500, floor: H - 6, left: 6, right: W - 6, divider: null, onPeg: null, onLand: null }, opts);
+}
+
+function stepWorld(w, dt) {
+  const SUB = 4, sdt = dt / SUB;
+  for (let s = 0; s < SUB; s++) {
+    for (const m of w.marbles) {
+      m.vy += w.gravity * sdt;
+      if (m.steer) m.steer(m, sdt);
+      m.vx *= 0.9995; m.vy *= 0.9995;
+      m.x += m.vx * sdt; m.y += m.vy * sdt;
+    }
+    // Pegs
+    for (const m of w.marbles) {
+      for (const p of w.pegs) {
+        const dx = m.x - p.x, dy = m.y - p.y, reach = m.r + p.r, d2 = dx * dx + dy * dy;
+        if (d2 >= reach * reach || d2 === 0) continue;
+        const d = Math.sqrt(d2), nx = dx / d, ny = dy / d;
+        m.x = p.x + nx * reach; m.y = p.y + ny * reach;
+        const vn = m.vx * nx + m.vy * ny;
+        if (vn < 0) {
+          m.vx -= (1 + 0.45) * vn * nx; m.vy -= (1 + 0.45) * vn * ny;
+          m.vx += (Math.random() - 0.5) * 40;
+          if (w.onPeg && -vn > 60) w.onPeg(m, -vn, p);
+        }
+      }
+    }
+    for (let k = 0; k < 2; k++) {
+      // Marble to marble
+      const ms = w.marbles;
+      for (let i = 0; i < ms.length; i++) for (let j = i + 1; j < ms.length; j++) {
+        const a = ms[i], b = ms[j];
+        const dx = b.x - a.x, dy = b.y - a.y, reach = a.r + b.r, d2 = dx * dx + dy * dy;
+        if (d2 >= reach * reach || d2 === 0) continue;
+        const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, push = (reach - d) / 2;
+        a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
+        const app = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+        if (app < 0) {
+          const imp = -(1 + 0.25) * app / 2;
+          a.vx -= nx * imp; a.vy -= ny * imp; b.vx += nx * imp; b.vy += ny * imp;
+          if (-app > 180) { landed(w, a, -app); landed(w, b, -app); }
+        }
+      }
+      // Walls, floor, divider
+      for (const m of w.marbles) {
+        const L = m.wallL ?? w.left, R = m.wallR ?? w.right;
+        if (m.x < L + m.r) { m.x = L + m.r; m.vx = Math.abs(m.vx) * 0.4; }
+        if (m.x > R - m.r) { m.x = R - m.r; m.vx = -Math.abs(m.vx) * 0.4; }
+        if (w.divider && m.side && m.y > w.divider.top - m.r) {
+          const cx = w.divider.x, half = 3;
+          // One-way: only holds a marble on its own side.
+          if (m.side === "yes" && m.x < cx && m.x > cx - half - m.r) { m.x = cx - half - m.r; m.vx = -Math.abs(m.vx) * 0.3; }
+          if (m.side === "no" && m.x > cx && m.x < cx + half + m.r) { m.x = cx + half + m.r; m.vx = Math.abs(m.vx) * 0.3; }
+        }
+        if (m.y > w.floor - m.r) {
+          const v = m.vy;
+          m.y = w.floor - m.r; m.vy = -Math.abs(m.vy) * 0.28; m.vx *= 0.96;
+          if (v > 180) landed(w, m, v);
+        }
+      }
+    }
+  }
+  for (const m of w.marbles) if (m.side && m.flip < 1 && m.flipping) m.flip = Math.min(1, m.flip + dt * 4);
+}
+function landed(w, m, speed) {
+  if (m.landed) return;
+  m.landed = true;
+  if (w.onLand) w.onLand(m, speed);
+}
+
+// ---------- Idea 2: flick ----------
+const flick = (() => {
+  const cv = document.getElementById("flickCanvas"), c = setupCanvas(cv);
+  const CAP = 40, R = 15;
+  const countEl = document.getElementById("flickCount");
+  let total = 0, simTimer = null, frame = null;
+  const world = makeWorld({
+    onLand(m) { Sound.clack(Math.min(1, total / CAP), m.mine ? 1.1 : 0.85); },
+  });
+  function drop(mine) {
+    if (total >= CAP) return false;
+    total++;
+    countEl.textContent = `${total} / ${CAP}`;
+    world.marbles.push({ x: mine ? W / 2 + (Math.random() - 0.5) * 60 : 80 + Math.random() * (W - 160), y: -R * 2, vx: (Math.random() - 0.5) * 120, vy: 350, r: R, flip: 0, side: null, landed: false, mine });
+    run();
+    return true;
+  }
+  function draw() {
+    c.clearRect(0, 0, W, H);
+    // A faint floor line
+    c.fillStyle = "rgb(247 244 236 / 0.05)"; c.fillRect(0, H - 6, W, 6);
+    for (const m of world.marbles) drawShadow(c, m);
+    for (const m of world.marbles) drawMarble(c, m);
+  }
+  let last = 0, quiet = 0;
+  function tick(now) {
+    const dt = Math.min((now - last) / 1000, 1 / 30); last = now;
+    stepWorld(world, dt); draw();
+    const moving = world.marbles.some(m => Math.abs(m.vy) > 8 || Math.abs(m.vx) > 8);
+    quiet = moving ? 0 : quiet + 1;
+    frame = quiet < 40 ? requestAnimationFrame(tick) : null;
+  }
+  function run() { quiet = 0; if (frame) return; last = performance.now(); frame = requestAnimationFrame(tick); }
+  function reset() { world.marbles = []; total = 0; countEl.textContent = `0 / ${CAP}`; stopSim(); run(); }
+  function startSim() {
+    simBtn.classList.add("on"); simBtn.textContent = "Room is voting…";
+    const next = () => { if (!drop(false)) return stopSim(); simTimer = setTimeout(next, 200 + Math.random() * 1100); };
+    simTimer = setTimeout(next, 300);
+  }
+  function stopSim() { clearTimeout(simTimer); simTimer = null; simBtn.classList.remove("on"); simBtn.textContent = "Simulate the room"; }
+  const simBtn = document.getElementById("simBtn");
+  simBtn.onclick = () => { Sound.init(); simTimer ? stopSim() : startSim(); };
+  document.getElementById("resetFlick").onclick = () => { reset(); phone.reset(); };
+  draw();
+  return { drop };
+})();
+
+const phone = (() => {
+  const yes = document.getElementById("mYes"), no = document.getElementById("mNo");
+  const slot = document.getElementById("slot"), hint = document.getElementById("hint");
+  const cast = document.getElementById("cast"), foot = document.getElementById("phoneFoot");
+  let chosen = null, drag = null, done = false;
+  function choose(which) {
+    if (done) return;
+    Sound.init();
+    if (chosen === which) return;
+    chosen = which;
+    const [me, other] = which === "yes" ? [yes, no] : [no, yes];
+    me.classList.add("chosen"); me.classList.remove("away");
+    other.classList.remove("chosen"); other.classList.add("away");
+    me.style.transform = "";
+    slot.classList.add("show"); hint.classList.add("show");
+    foot.innerHTML = `Changed your mind? <u style="cursor:pointer" id="swap">Pick ${which === "yes" ? "No" : "Yes"}</u>`;
+    document.getElementById("swap").onclick = () => choose(which === "yes" ? "no" : "yes");
+  }
+  function el() { return chosen === "yes" ? yes : no; }
+  [yes, no].forEach((m) => {
+    const which = m === yes ? "yes" : "no";
+    m.addEventListener("pointerdown", (e) => {
+      if (done) return;
+      if (chosen !== which) { choose(which); return; }
+      m.setPointerCapture(e.pointerId);
+      drag = { y0: e.clientY, x0: e.clientX, t: performance.now(), lastY: e.clientY, lastT: performance.now(), vy: 0 };
+      m.classList.add("dragging");
+    });
+    m.addEventListener("pointermove", (e) => {
+      if (!drag || chosen !== which) return;
+      const now = performance.now();
+      drag.vy = (e.clientY - drag.lastY) / Math.max(1, now - drag.lastT);
+      drag.lastY = e.clientY; drag.lastT = now;
+      const dy = Math.min(20, e.clientY - drag.y0), dx = (e.clientX - drag.x0) * 0.3;
+      m.style.transform = `translate(${dx}px, ${dy}px) scale(1.08)`;
+    });
+    const end = (e) => {
+      if (!drag || chosen !== which) return;
+      const dy = e.clientY - drag.y0;
+      m.classList.remove("dragging");
+      const flung = dy < -90 || (drag.vy < -0.5 && dy < -25);
+      drag = null;
+      if (flung) launch(m); else { m.style.transform = ""; if (Math.abs(dy) < 6) nudge(m); }
+    };
+    m.addEventListener("pointerup", end);
+    m.addEventListener("pointercancel", end);
+  });
+  function nudge(m) {
+    m.animate([{ transform: "scale(1.08) translateY(0)" }, { transform: "scale(1.08) translateY(-14px)" }, { transform: "scale(1.08) translateY(0)" }], { duration: 380, easing: "ease-out" });
+  }
+  function launch(m) {
+    done = true;
+    Sound.whoosh();
+    m.classList.add("launch");
+    m.style.transform = "translate(0, -420px) scale(0.5)";
+    slot.classList.remove("show"); hint.classList.remove("show");
+    foot.textContent = "";
+    // A beat for it to "travel" to the projector.
+    setTimeout(() => flick.drop(true), 280);
+    setTimeout(() => cast.classList.add("show"), 350);
+  }
+  function reset() {
+    done = false; chosen = null;
+    [yes, no].forEach((m) => { m.className = `marble ${m === yes ? "yes" : "no"}`; m.style.transform = ""; });
+    slot.classList.remove("show"); hint.classList.remove("show"); cast.classList.remove("show");
+    foot.textContent = "Tap Yes or No";
+  }
+  document.getElementById("redo").onclick = reset;
+  return { reset };
+})();
+
+// ---------- Idea 6: pegboard ----------
+(() => {
+  const cv = document.getElementById("pegCanvas"), c = setupCanvas(cv);
+  const resultEl = document.getElementById("result"), resultText = document.getElementById("resultText");
+  const revealBtn = document.getElementById("revealBtn"), slowBtn = document.getElementById("slowFinish");
+  const R = 8.5;
+  const CX = W / 2;
+  const SPOUT_Y = 104;
+  const BIN_TOP = 395, BIN_L = 230, BIN_R = W - 230;
+  const TARGET = { yes: (BIN_L + CX) / 2, no: (CX + BIN_R) / 2 };
+  let yesN = 27, noN = 13, slow = true;
+  let queue = [], world, counts, hopper, running = false, frame = null, releaseTimer = null, finished = false;
+
+  function buildPegs() {
+    const pegs = [], rows = 9, gapX = 40, top = 140, gapY = 28;
+    for (let i = 0; i < rows; i++) {
+      const n = i + 3, y = top + i * gapY;
+      for (let k = 0; k < n; k++) pegs.push({ x: CX + (k - (n - 1) / 2) * gapX, y, r: 4.5, glow: 0 });
+    }
+    return pegs;
+  }
+
+  function hopperSlots(n) {
+    // Pack gold marbles into a tray at the top, bottom row first.
+    const slots = [], left = CX - 200, right = CX + 200, bottom = 84, d = R * 2.05;
+    let row = 0;
+    while (slots.length < n) {
+      const y = bottom - row * d * 0.87, off = row % 2 ? d / 2 : 0;
+      for (let x = left + R + off; x <= right - R && slots.length < n; x += d) slots.push({ x, y });
+      row++;
+    }
+    return slots;
+  }
+
+  function reset() {
+    clearTimeout(releaseTimer);
+    finished = false; running = false;
+    counts = { yes: 0, no: 0 };
+    world = makeWorld({
+      pegs: buildPegs(),
+      divider: { x: CX, top: BIN_TOP + 10 },
+      floor: H - 14,
+      onPeg(m, v, p) { p.glow = 1; Sound.tick(Math.min(1, v / 600)); },
+      onLand(m) { if (m.y > BIN_TOP) Sound.thud(m.side, 0.9); },
+    });
+    const total = yesN + noN;
+    hopper = hopperSlots(total);
+    queue = [...Array(yesN).fill("yes"), ...Array(noN).fill("no")];
+    for (let i = queue.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [queue[i], queue[j]] = [queue[j], queue[i]]; }
+    resultEl.classList.remove("show");
+    revealBtn.disabled = false; revealBtn.textContent = "Reveal";
+    draw();
+  }
+
+  function steer(m, dt) {
+    if (m.y < SPOUT_Y + 20) return;
+    const depth = Math.min(1, (m.y - SPOUT_Y) / (BIN_TOP - SPOUT_Y));
+    const k = 4 + depth * 10, cap = 700 + depth * 1800;
+    const ax = Math.max(-cap, Math.min(cap, (TARGET[m.side] - m.x) * k));
+    m.vx += ax * dt;
+    // Entering the bins, each marble is walled into its own side.
+    if (m.y > BIN_TOP - 30) { m.wallL = m.side === "yes" ? BIN_L : CX + 3; m.wallR = m.side === "yes" ? CX - 3 : BIN_R; }
+  }
+
+  function release() {
+    if (!queue.length) return;
+    const side = queue.shift();
+    hopper.pop();
+    world.marbles.push({ x: CX + (Math.random() - 0.5) * 2, y: SPOUT_Y - 6, vx: 0, vy: 60, r: R, side, flip: 0, flipping: true, landed: false, steer });
+    Sound.tock();
+    run();
+    if (!queue.length) return;
+    const left = queue.length;
+    let gap = yesN + noN > 45 ? 150 : 210;
+    if (slow && left <= 5) gap = 420 + (5 - left) * 160;
+    releaseTimer = setTimeout(release, gap);
+  }
+
+  function tally() {
+    for (const m of world.marbles) if (!m.counted && m.y > BIN_TOP + 10) { m.counted = true; counts[m.side]++; }
+  }
+
+  function drawPeg(p) {
+    c.beginPath(); c.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    c.fillStyle = `rgb(${200 + 55 * p.glow} ${180 + 50 * p.glow} ${120 + 40 * p.glow})`;
+    c.fill();
+    if (p.glow > 0.05) { c.beginPath(); c.arc(p.x, p.y, p.r + 6 * p.glow, 0, Math.PI * 2); c.fillStyle = `rgb(227 193 111 / ${0.25 * p.glow})`; c.fill(); }
+    p.glow *= 0.86;
+  }
+
+  function draw() {
+    c.clearRect(0, 0, W, H);
+    // Hopper tray
+    c.fillStyle = "rgb(247 244 236 / 0.04)";
+    roundRect(CX - 210, 14, 420, 82, 14); c.fill();
+    c.strokeStyle = "rgb(247 244 236 / 0.12)"; c.lineWidth = 1.5; c.stroke();
+    // Spout
+    c.fillStyle = "rgb(247 244 236 / 0.12)"; c.fillRect(CX - 14, 96, 28, 6);
+    for (const s of hopper) c.drawImage(SPR.gold, s.x - R, s.y - R, R * 2, R * 2);
+    // Pegs
+    for (const p of world.pegs) drawPeg(p);
+    // Bins
+    c.strokeStyle = "rgb(247 244 236 / 0.14)"; c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(BIN_L, BIN_TOP - 30); c.lineTo(BIN_L, H - 14); c.lineTo(BIN_R, H - 14); c.lineTo(BIN_R, BIN_TOP - 30);
+    c.moveTo(CX, BIN_TOP + 10); c.lineTo(CX, H - 14);
+    c.stroke();
+    // Bin labels and counts
+    c.textAlign = "center";
+    c.font = "600 13px -apple-system, sans-serif"; c.fillStyle = "rgb(174 172 167 / 0.9)";
+    c.fillText("YES", BIN_L - 70, BIN_TOP + 40);
+    c.fillText("NO", BIN_R + 70, BIN_TOP + 40);
+    c.font = "700 40px ui-rounded, -apple-system, sans-serif"; c.fillStyle = "#f7f4ec";
+    c.fillText(counts.yes, BIN_L - 70, BIN_TOP + 86);
+    c.fillText(counts.no, BIN_R + 70, BIN_TOP + 86);
+    // Marbles
+    for (const m of world.marbles) if (m.landed) drawShadow(c, m);
+    for (const m of world.marbles) drawMarble(c, m);
+  }
+  function roundRect(x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+
+  let last = 0, quiet = 0;
+  function tick(now) {
+    const dt = Math.min((now - last) / 1000, 1 / 30); last = now;
+    stepWorld(world, dt); tally(); draw();
+    const moving = world.marbles.some(m => Math.abs(m.vy) > 10 || Math.abs(m.vx) > 10) || queue.length > 0;
+    quiet = moving ? 0 : quiet + 1;
+    if (running && !finished && !queue.length && counts.yes + counts.no === yesN + noN && quiet > 20) finish();
+    frame = quiet < 60 ? requestAnimationFrame(tick) : null;
+  }
+  function run() { quiet = 0; if (frame) return; last = performance.now(); frame = requestAnimationFrame(tick); }
+
+  function finish() {
+    finished = true;
+    Sound.bell();
+    const pct = Math.round((yesN / (yesN + noN)) * 100);
+    resultText.textContent = `${pct}% Yes`;
+    resultEl.classList.add("show");
+    revealBtn.disabled = false; revealBtn.textContent = "Run again";
+  }
+
+  revealBtn.onclick = () => {
+    Sound.init();
+    if (running) reset();
+    running = true; revealBtn.disabled = true;
+    release();
+  };
+  document.querySelectorAll("[data-preset]").forEach((b) => b.onclick = () => {
+    document.querySelectorAll("[data-preset]").forEach((x) => x.classList.toggle("on", x === b));
+    [yesN, noN] = b.dataset.preset.split(",").map(Number);
+    reset();
+  });
+  slowBtn.classList.add("on");
+  slowBtn.onclick = () => { slow = !slow; slowBtn.textContent = `Slow finish: ${slow ? "on" : "off"}`; slowBtn.classList.toggle("on", slow); };
+  reset();
+})();
+</script>
+</body>
+</html>
