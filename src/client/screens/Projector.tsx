@@ -39,6 +39,11 @@ export function Projector() {
     [projectorKey],
   );
   const { room, connection, refusal } = useRoom(code, join);
+  const revealedFocus = room?.revealed?.pnmId === room?.focusPnmId ? (room?.revealed ?? null) : null;
+  const reveal = useMemo(
+    () => revealedFocus && { tally: { yes: revealedFocus.yes, no: revealedFocus.no }, live: true },
+    [revealedFocus],
+  );
 
   if (!projectorKey) return <CenteredMessage title="Open the projector view from the host screen" />;
   if (refusal) return <CenteredMessage title={refusal} />;
@@ -48,7 +53,7 @@ export function Projector() {
 
   if (room.phase === "ended") {
     return (
-      <Stage scene="ended" count={0} capacity={1} yesShown={null} glow={0} celebrate={false}>
+      <Stage scene="ended" count={0} capacity={1} glow={0} celebrate={false}>
         <CenteredMessage title="Voting is closed" />
       </Stage>
     );
@@ -62,7 +67,6 @@ export function Projector() {
         scene="lobby"
         count={room.members.length}
         capacity={Math.max(room.members.length, LOBBY_MIN_CAPACITY)}
-        yesShown={null}
         glow={0.25}
         celebrate={false}
       >
@@ -85,7 +89,7 @@ export function Projector() {
       scene={pnm.id}
       count={revealed ? revealed.yes + revealed.no : voted}
       capacity={total}
-      yesShown={revealed?.yes ?? null}
+      reveal={reveal}
       glow={total ? voted / total : 0}
       celebrate={allIn}
       clacks={!revealed}
@@ -112,7 +116,7 @@ function Stage({
   scene,
   count,
   capacity,
-  yesShown,
+  reveal = null,
   glow,
   celebrate,
   clacks = false,
@@ -121,7 +125,7 @@ function Stage({
   scene: string;
   count: number;
   capacity: number;
-  yesShown: number | null;
+  reveal?: { tally: Tally; live: boolean } | null;
   glow: number;
   celebrate: boolean;
   clacks?: boolean;
@@ -143,7 +147,7 @@ function Stage({
           scene={scene}
           count={count}
           capacity={capacity}
-          yesShown={yesShown}
+          reveal={reveal}
           celebrate={celebrate}
           clacks={clacks}
         />
@@ -259,7 +263,6 @@ function Finale({ members, connection }: { members: ClassMember[]; connection: C
       scene="finale"
       count={done ? capacity : Math.min(step, total)}
       capacity={capacity}
-      yesShown={null}
       glow={step / (total + 1)}
       celebrate={done}
     >

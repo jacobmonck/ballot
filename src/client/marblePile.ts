@@ -8,15 +8,12 @@ const SOLVER_PASSES = 3;
 const SPAWN_GAP_S = 0.035;
 const FADE_PER_S = 3;
 const QUIET_PIXELS = 0.3;
-const SORT_FLIGHT_S = 0.8;
-const HOP_SPEED = 300;
-const FLIP_PER_S = 3.5;
-const MAX_FLIP_DELAY_S = 0.55;
-const CENTER_GAP = 4;
 // How fast a falling marble must meet the pile for the hit to count as landing on it.
 const LANDING_SPEED = 120;
 
-export type Side = "yes" | "no";
+import type { Point, Side } from "./pegboard";
+
+export type { Side };
 
 export interface Marble {
   x: number;
@@ -29,15 +26,10 @@ export interface Marble {
   leaving: boolean;
   // Has come to rest on the floor or the pile at least once.
   landed: boolean;
+  // Set only on marbles handed back from a finished pegboard, which are already their side's color.
   side: Side | null;
-  // Reached its own half, after which the center line holds it there.
-  sorted: boolean;
-  // 0 is unrevealed gold, 1 is fully its side's color. Negative counts down to the flip.
+  // 0 is gold, 1 is fully its side's color.
   flip: number;
-}
-
-function isFlying({ side, sorted }: Marble) {
-  return side !== null && !sorted;
 }
 
 // A small circle-packing simulation: marbles fall, stack on the floor, and drain through it.
@@ -48,7 +40,6 @@ export class MarblePile {
   private target = 0;
   private radius = 10;
   private spawnClock = 0;
-  private sides: { yes: number } | null = null;
   private landings = 0;
 
   resize(width: number, height: number) {
@@ -67,48 +58,37 @@ export class MarblePile {
   // Opens the floor. Everything on it falls away and new marbles start a fresh pile.
   drain() {
     for (const marble of this.marbles) marble.draining = true;
-    this.sides = null;
   }
 
-  // Colors the pile and sorts it: Yes rolls left, No rolls right.
-  reveal(yes: number) {
-    this.sides = { yes };
+  // Hands the pile to the pegboard: returns where each settled marble is and stops spawning more.
+  takeAll(): Point[] {
     const live = this.marbles.filter((marble) => !marble.draining && !marble.leaving);
-    for (let index = live.length - 1; index > 0; index--) {
-      const swap = Math.floor(Math.random() * (index + 1));
-      [live[index], live[swap]] = [live[swap]!, live[index]!];
+    this.marbles = this.marbles.filter((marble) => marble.draining || marble.leaving);
+    this.target = 0;
+    return live.map(({ x, y }) => ({ x, y }));
+  }
+
+  // Takes back marbles from the pegboard and lets them fall away like a drained pile.
+  absorb(marbles: { x: number; y: number; radius: number; side: Side | null }[]) {
+    for (const { x, y, radius, side } of marbles) {
+      this.marbles.push({
+        x,
+        y,
+        vx: 0,
+        vy: 0,
+        radius,
+        alpha: 1,
+        draining: true,
+        leaving: false,
+        landed: true,
+        side,
+        flip: 1,
+      });
     }
-    live.forEach((marble, index) => {
-      const side = index < yes ? "yes" : "no";
-      marble.side = side;
-      marble.flip = -Math.random() * MAX_FLIP_DELAY_S;
-      marble.sorted = this.isOnOwnHalf(marble);
-      if (marble.sorted) {
-        marble.vy -= HOP_SPEED + Math.random() * HOP_SPEED;
-        return;
-      }
-      // Marbles on the wrong half fly over the pile instead of shoving through it.
-      marble.vx = (this.randomX(marble.radius, side) - marble.x) / SORT_FLIGHT_S;
-      marble.vy = (-GRAVITY * SORT_FLIGHT_S) / 2;
-    });
   }
 
-  private isOnOwnHalf({ x, radius, side }: Marble) {
-    const reach = radius + CENTER_GAP;
-    return side === "yes" ? x <= this.width / 2 - reach : x >= this.width / 2 + reach;
-  }
-
-  private randomX(radius: number, side: Side | null) {
-    const reach = radius + CENTER_GAP;
-    const left = side === "no" ? this.width / 2 + reach : radius;
-    const right = side === "yes" ? this.width / 2 - reach : this.width - radius;
-    return left + Math.random() * (right - left);
-  }
-
-  private sideForNewMarble(): Side | null {
-    if (!this.sides) return null;
-    const yeses = this.marbles.filter((marble) => !marble.draining && marble.side === "yes").length;
-    return yeses < this.sides.yes ? "yes" : "no";
+  private randomX(radius: number) {
+    return radius + Math.random() * (this.width - radius * 2);
   }
 
   // Marbles that first landed since the last call.
@@ -142,9 +122,8 @@ export class MarblePile {
         return;
       }
       const { radius } = this;
-      const side = this.sideForNewMarble();
       this.marbles.push({
-        x: this.randomX(radius, side),
+        x: this.randomX(radius),
         y: -radius * 2,
         vx: (Math.random() - 0.5) * 120,
         vy: 300 + Math.random() * 200,
@@ -153,9 +132,8 @@ export class MarblePile {
         draining: false,
         leaving: false,
         landed: false,
-        side,
-        sorted: side !== null,
-        flip: this.sides ? 1 : 0,
+        side: null,
+        flip: 0,
       });
     }
   }
@@ -179,7 +157,7 @@ export class MarblePile {
           for (const other of grid.get((column + dx) * 8192 + row + dy) ?? []) {
             if (other <= index) continue;
             const b = marbles[other]!;
-            if (a.draining !== b.draining || isFlying(a) || isFlying(b)) continue;
+            if (a.draining !== b.draining) continue;
             const nx = b.x - a.x;
             const ny = b.y - a.y;
             const reach = a.radius + b.radius;
@@ -219,24 +197,12 @@ export class MarblePile {
         marble.x = width - radius;
         marble.vx = -Math.abs(marble.vx) * WALL_BOUNCE;
       }
-      if (marble.side && !marble.draining) this.holdSide(marble);
       if (!marble.draining && marble.y > height - radius) {
         this.land(marble);
         marble.y = height - radius;
         marble.vy = -Math.abs(marble.vy) * BOUNCE;
         marble.vx *= ROLL_FRICTION;
       }
-    }
-  }
-
-  private holdSide(marble: Marble) {
-    if (this.isOnOwnHalf(marble)) {
-      // A flying marble rejoins the pile on the way down, so it lands on top.
-      if (marble.vy > 0) marble.sorted = true;
-    } else if (marble.sorted) {
-      const reach = marble.radius + CENTER_GAP;
-      marble.x = this.width / 2 + (marble.side === "yes" ? -reach : reach);
-      marble.vx = 0;
     }
   }
 
@@ -267,10 +233,6 @@ export class MarblePile {
       const [x, y] = before[index]!;
       if (Math.hypot(marble.x - x, marble.y - y) > QUIET_PIXELS) moving = true;
       if (marble.leaving) marble.alpha -= FADE_PER_S * dt;
-      if (marble.side && marble.flip < 1) {
-        marble.flip = Math.min(1, marble.flip + (marble.flip < 0 ? dt : FLIP_PER_S * dt));
-        moving = true;
-      }
     }
 
     this.marbles = this.marbles.filter((marble) => marble.alpha > 0 && marble.y < this.height + marble.radius * 2);

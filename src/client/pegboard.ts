@@ -52,6 +52,8 @@ export interface Board {
   // Row by row from the top. Row i holds i + 3 pegs.
   pegs: Point[];
   rows: number;
+  // The tray the hopper's marbles sit in, with the spout under its middle.
+  tray: Rect;
   spout: Point;
   // Slot 0 sits at the spout, the rest fan out and up from it.
   hopper: Point[];
@@ -104,6 +106,7 @@ export function layoutBoard(sides: { yes: number; no: number }): Board {
       pegRadius: PEG_RADIUS,
       pegs,
       rows: PEG_ROWS,
+      tray: HOPPER,
       spout: { x: CENTER, y: HOPPER.bottom - radius },
       hopper,
       bins: BINS,
