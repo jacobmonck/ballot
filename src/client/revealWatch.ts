@@ -9,7 +9,8 @@ export function watchReveal(
   revealed: boolean,
   connection: Connection,
 ): string | null {
-  if (connection !== "open" || !pnmId) return null;
-  if (!revealed) return pnmId;
-  return watched === pnmId ? watched : null;
+  if (!pnmId) return null;
+  // A watched reveal stays watched through a dropped connection, so its drop isn't cut short.
+  if (revealed) return watched === pnmId ? watched : null;
+  return connection === "open" ? pnmId : null;
 }

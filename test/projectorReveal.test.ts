@@ -29,6 +29,14 @@ describe("watchReveal", () => {
     expect(watchReveal(watched, "a", true, "open")).toBeNull();
   });
 
+  it("keeps playing a watched reveal through a dropped connection", () => {
+    let watched = watchReveal(null, "a", false, "open");
+    watched = watchReveal(watched, "a", true, "open");
+    watched = watchReveal(watched, "a", true, "reconnecting");
+    expect(watched).toBe("a");
+    expect(watchReveal(watched, "a", true, "open")).toBe("a");
+  });
+
   it("forgets the last PNM when the next comes up", () => {
     expect(watchReveal("a", "b", false, "open")).toBe("b");
     expect(watchReveal("a", null, false, "open")).toBeNull();
