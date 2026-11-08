@@ -44,15 +44,16 @@ function FlickButtons({ value, yesDisabled, disabled, sending, onVote }: Props) 
     setPicked(side);
   };
 
+  // The vote goes out the moment it's cast. The flight is only for show, so a PNM change mid-flight
+  // can't lose it.
   const cast = () => {
     if (disabled || launching || !picked) return;
     haptic();
+    onVote(picked);
     setLaunching(true);
   };
 
   const landed = () => {
-    if (!picked) return;
-    onVote(picked);
     setPicked(null);
     setChanging(false);
     setLaunching(false);
