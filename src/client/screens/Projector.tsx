@@ -8,7 +8,10 @@ import { PnmPhoto } from "../components/PnmPhoto";
 import { ProgressBar } from "../components/ProgressBar";
 import { SoundToggle } from "../components/SoundToggle";
 import { CenteredMessage, ConnectionBanner } from "../components/Status";
-import { flick, settle } from "../feel";
+import { flick, materialize, settle } from "../feel";
+import { formatPercent, yesPercent } from "../percent";
+import { watchReveal } from "../revealWatch";
+import { sound } from "../sound";
 import { type Connection, useRoom } from "../useRoom";
 
 const LOBBY_MIN_CAPACITY = 40;
@@ -39,11 +42,24 @@ export function Projector() {
     [projectorKey],
   );
   const { room, connection, refusal } = useRoom(code, join);
-  const revealedFocus = room?.revealed?.pnmId === room?.focusPnmId ? (room?.revealed ?? null) : null;
+  const reducedMotion = useReducedMotion();
+  const focusId = room?.focusPnmId ?? null;
+  const revealedFocus = room?.revealed && room.revealed.pnmId === focusId ? room.revealed : null;
+  // Only a reveal this screen watched happen plays the drop. One found on load shows finished.
+  const watched = useRef<string | null>(null);
+  watched.current = watchReveal(watched.current, focusId, !!revealedFocus, connection);
+  const live = !!revealedFocus && watched.current === focusId;
   const reveal = useMemo(
-    () => revealedFocus && { tally: { yes: revealedFocus.yes, no: revealedFocus.no }, live: true },
-    [revealedFocus],
+    () => revealedFocus && { tally: { yes: revealedFocus.yes, no: revealedFocus.no }, live },
+    [revealedFocus, live],
   );
+  const [dropDoneFor, setDropDoneFor] = useState<string | null>(null);
+  const votesCast = revealedFocus ? revealedFocus.yes + revealedFocus.no : 0;
+
+  // With reduced motion there's no drop to wait for, but the room still hears the result lock in.
+  useEffect(() => {
+    if (live && reducedMotion && votesCast > 0) sound.bell();
+  }, [live, reducedMotion, votesCast, focusId]);
 
   if (!projectorKey) return <CenteredMessage title="Open the projector view from the host screen" />;
   if (refusal) return <CenteredMessage title={refusal} />;
@@ -79,7 +95,10 @@ export function Projector() {
   const voted = room.progress?.voted ?? 0;
   const total = room.progress?.total ?? 0;
   const allIn = total > 0 && voted >= total;
-  const revealed = room.revealed?.pnmId === pnm.id ? room.revealed : null;
+  const revealed = revealedFocus;
+  // The pegboard takes the screen for a reveal, unless there's nothing to drop or motion is reduced.
+  const onBoard = !!revealed && votesCast > 0 && !reducedMotion;
+  const dropDone = !live || dropDoneFor === pnm.id;
   const place = room.revote
     ? `Revote ${room.revote.pnmIds.indexOf(pnm.id) + 1} of ${room.revote.pnmIds.length}`
     : `PNM ${pnm.ordinal} of ${room.pnmCount}`;
@@ -90,6 +109,7 @@ export function Projector() {
       count={revealed ? revealed.yes + revealed.no : voted}
       capacity={total}
       reveal={reveal}
+      onDropDone={() => setDropDoneFor(pnm.id)}
       glow={total ? voted / total : 0}
       celebrate={allIn}
       clacks={!revealed}
@@ -97,15 +117,26 @@ export function Projector() {
       <ConnectionBanner connection={connection} />
       <main className="min-h-dvh overflow-hidden">
         <AnimatePresence initial={false} mode="popLayout">
-          <Spotlight
-            key={pnm.id}
-            pnm={pnm}
-            place={place}
-            voted={voted}
-            total={total}
-            allIn={allIn}
-            revealed={revealed}
-          />
+          {onBoard ? (
+            <RevealResult
+              key={`${pnm.id}-board`}
+              pnm={pnm}
+              place={place}
+              tally={revealed}
+              total={total}
+              done={dropDone}
+            />
+          ) : (
+            <Spotlight
+              key={pnm.id}
+              pnm={pnm}
+              place={place}
+              voted={voted}
+              total={total}
+              allIn={allIn}
+              revealed={revealed}
+            />
+          )}
         </AnimatePresence>
       </main>
     </Stage>
@@ -117,6 +148,7 @@ function Stage({
   count,
   capacity,
   reveal = null,
+  onDropDone,
   glow,
   celebrate,
   clacks = false,
@@ -126,6 +158,7 @@ function Stage({
   count: number;
   capacity: number;
   reveal?: { tally: Tally; live: boolean } | null;
+  onDropDone?: () => void;
   glow: number;
   celebrate: boolean;
   clacks?: boolean;
@@ -148,6 +181,7 @@ function Stage({
           count={count}
           capacity={capacity}
           reveal={reveal}
+          onDropDone={onDropDone}
           celebrate={celebrate}
           clacks={clacks}
         />
@@ -531,6 +565,63 @@ function Spotlight({
             </div>
           </>
         )}
+      </div>
+    </motion.div>
+  );
+}
+
+// Laid over the pegboard: the PNM's place while the marbles drop, then who the result belongs to.
+function RevealResult({
+  pnm,
+  place,
+  tally,
+  total,
+  done,
+}: {
+  pnm: Pnm;
+  place: string;
+  tally: Tally;
+  total: number;
+  done: boolean;
+}) {
+  const blank = total - tally.yes - tally.no;
+  return (
+    <motion.div
+      className="relative min-h-dvh"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={settle}
+    >
+      <p className="absolute top-[3vh] left-[3vw] text-[2vw] text-chalk tabular-nums">{place}</p>
+      <div aria-live="polite">
+        <AnimatePresence>
+          {done && (
+            <motion.div
+              className="absolute inset-x-0 top-0 flex h-[55vh] items-center justify-center gap-[3vw] px-[6vw]"
+              {...materialize}
+              transition={settle}
+            >
+              <PnmPhoto
+                name={pnm.name}
+                url={pnm.photoUrl}
+                className="aspect-square h-[30vh] shrink-0 rounded-[2vw] text-[9vh] shadow-[0_2vw_4vw_rgb(0_0_0/0.45)]"
+              />
+              <div className="min-w-0">
+                <h1 className="font-display text-[4vw] leading-[1.05] font-bold tracking-[-0.03em] wrap-anywhere">
+                  {pnm.name}
+                </h1>
+                <p className="mt-[1vh] font-display text-[6vw] leading-none font-bold tracking-[-0.03em] tabular-nums">
+                  {formatPercent(yesPercent(tally))} Yes
+                </p>
+                <p className="sr-only">
+                  {tally.yes} Yes, {tally.no} No
+                </p>
+                {blank > 0 && <p className="mt-[1.5vh] text-[1.8vw] text-chalk tabular-nums">{blank} didn't vote</p>}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );

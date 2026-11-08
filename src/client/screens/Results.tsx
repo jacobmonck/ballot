@@ -1,21 +1,14 @@
 import { AnimatePresence, motion } from "motion/react";
 import { Fragment, useState } from "react";
 import { toCsv } from "../../shared/csv";
-import type { ResultRow, Results as ResultsData, Tally } from "../../shared/protocol";
+import type { ResultRow, Results as ResultsData } from "../../shared/protocol";
 import { PnmPhoto } from "../components/PnmPhoto";
 import { settle } from "../feel";
+import { formatPercent, yesPercent } from "../percent";
 
 const REVEAL_STEP_S = 0.035;
 const REVEAL_LAST_STEP = 14;
 const slowSettle = { ...settle, visualDuration: 0.8 };
-
-function formatPercent(percent: number) {
-  return `${Number(percent.toFixed(1))}%`;
-}
-
-function share({ yes, no }: Tally) {
-  return yes + no === 0 ? 0 : (yes / (yes + no)) * 100;
-}
 
 function download(code: string, results: ResultsData) {
   const rows: (string | number)[][] = [
@@ -148,7 +141,7 @@ function Row({ row, rank, made, tied }: { row: ResultRow; rank: number; made: bo
         </span>
         {tied && <span className="type-caption text-brass">Tied</span>}
         {latestRevote && (
-          <span className="type-caption text-chalk tabular-nums">Revote {formatPercent(share(latestRevote))}</span>
+          <span className="type-caption text-chalk tabular-nums">Revote {formatPercent(yesPercent(latestRevote))}</span>
         )}
         <span className="w-[4.5rem] shrink-0 text-right font-display text-xl font-bold tabular-nums">
           {formatPercent(row.percent)}

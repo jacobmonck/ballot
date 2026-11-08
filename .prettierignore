@@ -5,3 +5,6 @@ node_modules
 worker-configuration.d.ts
 *.csv
 *.md
+
+# The approved throwaway spike, kept as written.
+docs/superpowers/specs/*-spike.html
