@@ -1,7 +1,5 @@
-import { ROOM_CODE_LENGTH } from "../shared/protocol";
+import { ROOM_CODE_ALPHABET as ALPHABET, ROOM_CODE_LENGTH } from "../shared/protocol";
 
-// Crockford base32 minus 0/1 and U, so a code read off a projector cannot be mistyped.
-const ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
 const UNBIASED_LIMIT = 256 - (256 % ALPHABET.length);
 
 // Rejection sampling keeps every character equally likely.

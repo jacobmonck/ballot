@@ -1,4 +1,4 @@
-import { ROOM_CODE_PATTERN } from "../shared/protocol";
+import { ROOM_CODE_PATTERN, ROOM_CODE_SOURCE } from "../shared/protocol";
 import { generateKey, generateRoomCode } from "./code";
 import { importPhoto, PHOTO_PATH_PREFIX, servePhoto } from "./photos";
 
@@ -15,7 +15,7 @@ export { VotingRoom } from "./room";
 const MAX_CODE_ATTEMPTS = 8;
 const ROOM_ROUTE = /^\/api\/rooms\/([^/]+)(\/ws)?$/;
 const PHOTO_IMPORT_ROUTE = /^\/api\/rooms\/([^/]+)\/photos\/([0-9a-f-]{36})$/;
-const STORED_PHOTO_ROUTE = /^\/photos\/([2-9A-HJKMNP-TV-Z]{6}\/[0-9a-f-]{36})$/;
+const STORED_PHOTO_ROUTE = new RegExp(`^/photos/(${ROOM_CODE_SOURCE}/[0-9a-f-]{36})$`);
 const API_HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 
 function json(body: unknown, status = 200): Response {

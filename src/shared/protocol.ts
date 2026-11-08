@@ -157,4 +157,8 @@ export type ErrorCode =
 export const CLOSE_KICKED = 4001;
 
 export const ROOM_CODE_LENGTH = 6;
-export const ROOM_CODE_PATTERN = /^[2-9A-HJKMNP-TV-Z]{6}$/;
+// Crockford base32 minus 0/1 and U, so a code read off a projector cannot be mistyped.
+export const ROOM_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
+// The alphabet holds no regex metacharacters, so it can sit in a character class as is.
+export const ROOM_CODE_SOURCE = `[${ROOM_CODE_ALPHABET}]{${ROOM_CODE_LENGTH}}`;
+export const ROOM_CODE_PATTERN = new RegExp(`^${ROOM_CODE_SOURCE}$`);
