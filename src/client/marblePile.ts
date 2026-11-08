@@ -249,9 +249,7 @@ export class MarblePile {
       }
     }
 
-    this.marbles = this.marbles.filter(
-      (marble) => marble.alpha > 0 && marble.y < this.height + marble.radius * 2,
-    );
+    this.marbles = this.marbles.filter((marble) => marble.alpha > 0 && marble.y < this.height + marble.radius * 2);
     return moving || this.marbles.some(({ draining, leaving }) => draining || leaving);
   }
 }

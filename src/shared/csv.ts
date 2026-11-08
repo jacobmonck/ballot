@@ -13,6 +13,7 @@ function detectSeparator(text: string): "," | "\t" {
   return ",";
 }
 
+// Parses CSV or tab-separated text with quoted fields, a BOM and any line ending. Blank rows are dropped.
 export function parseCsv(input: string): string[][] {
   const text = input.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
   const separator = detectSeparator(text);
@@ -49,6 +50,7 @@ export function parseCsv(input: string): string[][] {
 
 const DRIVE_ID = /drive\.google\.com\/(?:file\/d\/|(?:open|uc)\?(?:.*&)?id=)([\w-]+)/;
 
+// Turns a Drive share link into its thumbnail address, which serves the image itself.
 export function normalizePhotoUrl(raw: string): string | null {
   // File-upload questions list multiple files as a comma-separated cell.
   const url = raw.split(",")[0]!.trim();
@@ -57,10 +59,12 @@ export function normalizePhotoUrl(raw: string): string | null {
   return driveId ? `https://drive.google.com/thumbnail?id=${driveId}&sz=w800` : url;
 }
 
+// True only for addresses normalizePhotoUrl builds, so the Worker never fetches anything else.
 export function isDrivePhoto(url: string): boolean {
   return /^https:\/\/drive\.google\.com\/thumbnail\?id=[\w-]+&sz=w\d+$/.test(url);
 }
 
+// A first guess at each form column, which the host can change before importing.
 export function guessColumn(header: string): ColumnKind {
   const text = header.trim();
   if (!text || /^(timestamp|score)$/i.test(text) || /e-?mail|phone/i.test(text)) return "ignore";
@@ -70,6 +74,7 @@ export function guessColumn(header: string): ColumnKind {
   return "question";
 }
 
+// One PNM per row with a name. Several name columns are joined, such as first and last.
 export function buildPnms(rows: string[][], columns: ColumnKind[]): PnmInput[] {
   const [headers, ...body] = rows;
   if (!headers) return [];
@@ -92,6 +97,7 @@ export function buildPnms(rows: string[][], columns: ColumnKind[]): PnmInput[] {
   return pnms;
 }
 
+// Cells that start like a formula get a leading quote so spreadsheets show them as text.
 export function toCsv(rows: (string | number)[][]): string {
   const cell = (value: string | number) => {
     if (typeof value === "number") return String(value);

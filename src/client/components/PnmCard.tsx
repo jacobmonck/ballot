@@ -1,6 +1,7 @@
 import type { PnmInput } from "../../shared/protocol";
 import { PnmPhoto } from "./PnmPhoto";
 
+// A PNM's photo, name and form answers, as brothers read them while voting.
 export function PnmCard({ pnm }: { pnm: PnmInput }) {
   return (
     <article>

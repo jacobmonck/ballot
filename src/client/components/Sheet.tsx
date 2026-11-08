@@ -4,6 +4,7 @@ import { flick, project, settle } from "../feel";
 
 const DISMISS_DISTANCE = 160;
 
+// A bottom sheet that closes on Escape, the backdrop or a downward drag, and returns focus when it does.
 export function Sheet({
   open,
   title,
@@ -66,7 +67,10 @@ export function Sheet({
               if (offset.y + project(velocity.y) > DISMISS_DISTANCE) onClose();
             }}
           >
-            <div className="shrink-0 cursor-grab touch-none px-5 pt-2.5 pb-2" onPointerDown={(event) => controls.start(event)}>
+            <div
+              className="shrink-0 cursor-grab touch-none px-5 pt-2.5 pb-2"
+              onPointerDown={(event) => controls.start(event)}
+            >
               <div className="mx-auto h-1 w-9 rounded-full bg-ivory/30" />
               <div className="mt-2 flex items-center justify-between">
                 <h2 className="type-title">{title}</h2>

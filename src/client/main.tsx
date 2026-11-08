@@ -10,6 +10,7 @@ import { Host } from "./screens/Host";
 import { Join } from "./screens/Join";
 import { Projector } from "./screens/Projector";
 
+// Brothers vote at /r, the host runs the room at /host, and the projector shows it at /p.
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <MotionConfig reducedMotion="user">

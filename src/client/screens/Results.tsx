@@ -18,7 +18,9 @@ function share({ yes, no }: Tally) {
 }
 
 function download(code: string, results: ResultsData) {
-  const rows: (string | number)[][] = [["Rank", "Name", "Percent Yes", "Yes", "No", "No response", "Brothers", "Revotes"]];
+  const rows: (string | number)[][] = [
+    ["Rank", "Name", "Percent Yes", "Yes", "No", "No response", "Brothers", "Revotes"],
+  ];
   results.rows.forEach((row, index) => {
     const revotes = row.revotes.map(({ yes, no }) => `${yes} Yes ${no} No`).join("; ");
     rows.push([index + 1, row.name, formatPercent(row.percent), row.yes, row.no, row.noResponse, row.total, revotes]);
@@ -28,9 +30,11 @@ function download(code: string, results: ResultsData) {
   link.href = url;
   link.download = `voting-results-${code}.csv`;
   link.click();
-  URL.revokeObjectURL(url);
+  // Some browsers start the download after click() returns, so the URL has to outlive this call.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+// The ranked results for the host, with the cut line, any tie, and a CSV download.
 export function Results({
   code,
   results,
@@ -95,12 +99,7 @@ export function Results({
       <ol className="mt-6">
         {rows.map((row, index) => (
           <Fragment key={row.pnmId}>
-            <Row
-              row={row}
-              rank={index + 1}
-              made={index < clearCount}
-              tied={!!tie?.pnmIds.includes(row.pnmId)}
-            />
+            <Row row={row} rank={index + 1} made={index < clearCount} tied={!!tie?.pnmIds.includes(row.pnmId)} />
             {index + 1 === clearCount && index + 1 < rows.length && (
               <li className="type-caption flex items-center gap-3 py-3 text-brass">
                 <span className="h-px flex-1 bg-brass" />
@@ -130,7 +129,9 @@ function Row({ row, rank, made, tied }: { row: ResultRow; rank: number; made: bo
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <span className="w-7 shrink-0 text-right font-display text-lg font-semibold text-chalk tabular-nums">{rank}</span>
+        <span className="w-7 shrink-0 text-right font-display text-lg font-semibold text-chalk tabular-nums">
+          {rank}
+        </span>
         <PnmPhoto name={row.name} url={row.photoUrl} className="size-11 shrink-0 rounded-full text-sm" />
         <span className="min-w-0 flex-1">
           <span className={`block truncate text-[1.0625rem] font-medium ${made || tied ? "" : "text-chalk"}`}>
@@ -149,7 +150,9 @@ function Row({ row, rank, made, tied }: { row: ResultRow; rank: number; made: bo
         {latestRevote && (
           <span className="type-caption text-chalk tabular-nums">Revote {formatPercent(share(latestRevote))}</span>
         )}
-        <span className="w-[4.5rem] shrink-0 text-right font-display text-xl font-bold tabular-nums">{formatPercent(row.percent)}</span>
+        <span className="w-[4.5rem] shrink-0 text-right font-display text-xl font-bold tabular-nums">
+          {formatPercent(row.percent)}
+        </span>
       </button>
       <AnimatePresence initial={false}>
         {open && (

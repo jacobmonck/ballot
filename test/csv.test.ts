@@ -3,19 +3,31 @@ import { buildPnms, guessColumn, normalizePhotoUrl, parseCsv, toCsv } from "../s
 
 describe("parseCsv", () => {
   it("parses plain rows", () => {
-    expect(parseCsv("a,b\n1,2\n")).toEqual([["a", "b"], ["1", "2"]]);
+    expect(parseCsv("a,b\n1,2\n")).toEqual([
+      ["a", "b"],
+      ["1", "2"],
+    ]);
   });
   it("handles quoted commas and escaped quotes", () => {
     expect(parseCsv('a,"b,c","d ""e"""')).toEqual([["a", "b,c", 'd "e"']]);
   });
   it("keeps newlines inside quotes", () => {
-    expect(parseCsv('a,"line 1\nline 2"\nb,c')).toEqual([["a", "line 1\nline 2"], ["b", "c"]]);
+    expect(parseCsv('a,"line 1\nline 2"\nb,c')).toEqual([
+      ["a", "line 1\nline 2"],
+      ["b", "c"],
+    ]);
   });
   it("handles CRLF", () => {
-    expect(parseCsv("a,b\r\n1,2\r\n")).toEqual([["a", "b"], ["1", "2"]]);
+    expect(parseCsv("a,b\r\n1,2\r\n")).toEqual([
+      ["a", "b"],
+      ["1", "2"],
+    ]);
   });
   it("keeps trailing empty cells", () => {
-    expect(parseCsv("a,b,\n1,,\n")).toEqual([["a", "b", ""], ["1", "", ""]]);
+    expect(parseCsv("a,b,\n1,,\n")).toEqual([
+      ["a", "b", ""],
+      ["1", "", ""],
+    ]);
   });
   it("strips a BOM", () => {
     expect(parseCsv("﻿name,x\n")).toEqual([["name", "x"]]);
@@ -24,7 +36,10 @@ describe("parseCsv", () => {
     expect(parseCsv("a\n\n\nb\n")).toEqual([["a"], ["b"]]);
   });
   it("reads tab-separated text pasted from Google Sheets", () => {
-    expect(parseCsv("name\tmajor\nSam\tBiology, CS\n")).toEqual([["name", "major"], ["Sam", "Biology, CS"]]);
+    expect(parseCsv("name\tmajor\nSam\tBiology, CS\n")).toEqual([
+      ["name", "major"],
+      ["Sam", "Biology, CS"],
+    ]);
   });
   it("does not treat a tab inside a comma CSV as a separator", () => {
     expect(parseCsv("a,b\tc\n")).toEqual([["a", "b\tc"]]);
@@ -101,6 +116,11 @@ describe("buildPnms", () => {
 
 describe("toCsv", () => {
   it("quotes where needed and neutralizes spreadsheet formulas", () => {
-    expect(toCsv([["a,b", 'c"d', 3], ["=SUM(A1)", "ok", 0]])).toBe('"a,b","c""d",3\r\n\'=SUM(A1),ok,0\r\n');
+    expect(
+      toCsv([
+        ["a,b", 'c"d', 3],
+        ["=SUM(A1)", "ok", 0],
+      ]),
+    ).toBe('"a,b","c""d",3\r\n\'=SUM(A1),ok,0\r\n');
   });
 });

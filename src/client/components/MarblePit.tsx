@@ -49,7 +49,14 @@ const BLACK: Finish = {
   outline: "rgb(245 241 230 / 0.32)",
 };
 
-function radial(context: CanvasRenderingContext2D, x: number, y: number, from: number, to: number, stops: [number, string][]) {
+function radial(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  from: number,
+  to: number,
+  stops: [number, string][],
+) {
   const gradient = context.createRadialGradient(x, y, from, x, y, to);
   for (const [offset, color] of stops) gradient.addColorStop(offset, color);
   return gradient;
@@ -131,6 +138,7 @@ function createShadow() {
   return sprite;
 }
 
+// A canvas of marbles driven by MarblePile. The loop sleeps once the pile settles.
 export function MarblePit({
   scene,
   count,

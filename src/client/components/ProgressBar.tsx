@@ -1,6 +1,7 @@
 import { motion } from "motion/react";
 import { settle } from "../feel";
 
+// An accessible bar that springs between values.
 export function ProgressBar({
   value,
   max,

@@ -24,6 +24,7 @@ const cardSlide = {
   exit: (direction: number) => ({ x: `${direction * -100}%`, opacity: 0.4 }),
 };
 
+// A brother's phone: the lobby until the first PNM, then the ballot.
 export function Brother() {
   const code = useParams().code!.toUpperCase();
   const identity = useMemo(() => memberIdentity(code), [code]);
@@ -150,7 +151,11 @@ function Ballot({
 
         <footer className="glass sticky bottom-0 z-10 rounded-t-[1.75rem] px-4 pt-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {!isFocus && (
-            <button type="button" className="btn btn-sm btn-secondary mx-auto mb-4 flex" onClick={() => setBrowsingId(null)}>
+            <button
+              type="button"
+              className="btn btn-sm btn-secondary mx-auto mb-4 flex"
+              onClick={() => setBrowsingId(null)}
+            >
               Back to the current PNM
             </button>
           )}
@@ -188,7 +193,9 @@ function Ballot({
                   <span
                     className={`size-5 shrink-0 rounded-full ${myVote === "yes" ? "ball-yes" : myVote === "no" ? "ball-no" : "ball-spent"}`}
                   />
-                  <span className={`min-w-0 flex-1 truncate ${item.id === pnm.id ? "font-semibold" : ""}`}>{item.name}</span>
+                  <span className={`min-w-0 flex-1 truncate ${item.id === pnm.id ? "font-semibold" : ""}`}>
+                    {item.name}
+                  </span>
                   <span className="type-caption text-chalk">
                     {myVote === "yes" ? "Yes" : myVote === "no" ? "No" : "No vote"}
                   </span>

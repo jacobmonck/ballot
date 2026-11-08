@@ -31,6 +31,25 @@ const ROOM_UPDATE_MS = 200;
 const SOCKET_WINDOW_MS = 10_000;
 const SOCKET_WINDOW_MESSAGES = 60;
 
+// The most Yes votes any one brother has cast, which is the floor for a new Yes limit.
+const MOST_YES_SPENT_SQL = `
+  SELECT COALESCE(MAX(yeses), 0) AS spent
+  FROM (SELECT COUNT(*) AS yeses FROM vote WHERE value = 'yes' GROUP BY member_id)
+`;
+
+const BALLOT_COUNT_SQL = `
+  SELECT COUNT(*) AS count FROM member
+  WHERE kicked = 0 OR EXISTS (SELECT 1 FROM vote WHERE vote.member_id = member.id)
+`;
+
+const TALLIES_SQL = `
+  SELECT pnm.id AS id,
+         COUNT(CASE WHEN vote.value = 'yes' THEN 1 END) AS yes,
+         COUNT(CASE WHEN vote.value = 'no' THEN 1 END) AS no
+  FROM pnm LEFT JOIN vote ON vote.pnm_id = pnm.id
+  GROUP BY pnm.id
+`;
+
 // Identity rides on the socket so it survives hibernation. Unjoined sockets have no attachment.
 interface Attachment {
   role: Role;
@@ -62,6 +81,7 @@ type PnmRow = {
   answers: string;
 };
 
+// An expected rejection of a client request. Its code and message go straight back to that client.
 class Refusal extends Error {
   constructor(
     readonly code: ErrorCode,
@@ -108,6 +128,7 @@ function findTie(ranked: { row: ResultRow; rounds: Tally[] }[], cutLine: number)
   return { pnmIds: tied.map(({ row }) => row.pnmId), spots: cutLine - before };
 }
 
+// Compares secrets without leaking how many leading bytes matched.
 function timingSafeEqual(a: string, b: string): boolean {
   const encoder = new TextEncoder();
   const left = encoder.encode(a);
@@ -115,6 +136,11 @@ function timingSafeEqual(a: string, b: string): boolean {
   return left.byteLength === right.byteLength && crypto.subtle.timingSafeEqual(left, right);
 }
 
+/**
+ * One voting room. Each room is its own Durable Object with SQLite storage, holding the PNMs,
+ * members and votes, and every WebSocket connected to it. Sockets use the hibernation API, so a
+ * quiet room costs nothing while it waits.
+ */
 export class VotingRoom extends DurableObject<Env> {
   private readonly sql: SqlStorage;
   private readonly socketUse = new WeakMap<WebSocket, { windowStart: number; messages: number }>();
@@ -132,6 +158,7 @@ export class VotingRoom extends DurableObject<Env> {
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
+  // Sets up a fresh room. Returns false if the code is already taken.
   async claim(code: string, hostKey: string, projectorKey: string): Promise<boolean> {
     if (this.roomOrNull()) return false;
     this.sql.exec(
@@ -153,6 +180,7 @@ export class VotingRoom extends DurableObject<Env> {
     migrate(this.sql);
   }
 
+  // Lets the Worker reject unknown codes before opening a socket.
   async exists(): Promise<boolean> {
     return this.roomOrNull() !== undefined;
   }
@@ -160,12 +188,13 @@ export class VotingRoom extends DurableObject<Env> {
   // The Drive address a host may copy into storage, or why they can't.
   async photoSource(hostKey: string, pnmId: string): Promise<string> {
     if (!timingSafeEqual(hostKey, this.room().host_key)) return "forbidden";
-    return (
-      this.sql.exec<{ photo_url: string | null }>("SELECT photo_url FROM pnm WHERE id = ?", pnmId).toArray()[0]?.photo_url ??
-      "missing"
-    );
+    const row = this.sql
+      .exec<{ photo_url: string | null }>("SELECT photo_url FROM pnm WHERE id = ?", pnmId)
+      .toArray()[0];
+    return row?.photo_url ?? "missing";
   }
 
+  // Swaps a Drive address for the stored copy, unless the host replaced the PNMs in the meantime.
   async savePhoto(hostKey: string, pnmId: string, source: string, photoUrl: string): Promise<boolean> {
     if (!timingSafeEqual(hostKey, this.room().host_key)) return false;
     const { rowsWritten } = this.sql.exec(
@@ -244,6 +273,7 @@ export class VotingRoom extends DurableObject<Env> {
     void this.ctx.storage.setAlarm(Date.now() + ROOM_TTL_MS);
   }
 
+  // Routes one parsed message. Joins come first, then votes, and everything else needs the host.
   private dispatch(ws: WebSocket, message: ClientMessage) {
     if (message.type === "join") {
       if (this.attachment(ws)) throw new Refusal("already_joined", "Already joined.");
@@ -424,14 +454,12 @@ export class VotingRoom extends DurableObject<Env> {
     const count = this.pnmCount();
     if (count === 0) throw new Refusal("wrong_phase", "Import PNMs before setting the budget.");
     const stored = yesBudget === null ? 0 : Math.max(1, Math.min(yesBudget, count));
-    const { spent } = this.sql
-      .exec<{ spent: number }>(`
-        SELECT COALESCE(MAX(yeses), 0) AS spent
-        FROM (SELECT COUNT(*) AS yeses FROM vote WHERE value = 'yes' GROUP BY member_id)
-      `)
-      .one();
+    const { spent } = this.sql.exec<{ spent: number }>(MOST_YES_SPENT_SQL).one();
     if (stored !== 0 && stored < spent) {
-      throw new Refusal("budget_too_low", `A brother has already used ${spent} Yes votes. Set the limit to ${spent} or higher.`);
+      throw new Refusal(
+        "budget_too_low",
+        `A brother has already used ${spent} Yes votes. Set the limit to ${spent} or higher.`,
+      );
     }
     this.sql.exec("UPDATE room SET yes_budget = ?", stored);
     this.broadcast({ type: "budget", yesBudget: this.effectiveBudget(), budgetIsDefault: stored === 0 });
@@ -487,6 +515,7 @@ export class VotingRoom extends DurableObject<Env> {
     this.broadcast({ type: "joinLock", locked });
   }
 
+  // Batches member and progress updates into one broadcast every ROOM_UPDATE_MS.
   private queueRoomUpdate(membersChanged: boolean) {
     this.membersChanged ||= membersChanged;
     this.roomUpdate ??= setTimeout(() => this.flushRoomUpdate(), ROOM_UPDATE_MS);
@@ -521,7 +550,9 @@ export class VotingRoom extends DurableObject<Env> {
     const tallies = this.tallies();
     this.ctx.storage.transactionSync(() => {
       for (const pnmId of tie.pnmIds) {
-        const { past_rounds } = this.sql.exec<{ past_rounds: string }>("SELECT past_rounds FROM pnm WHERE id = ?", pnmId).one();
+        const { past_rounds } = this.sql
+          .exec<{ past_rounds: string }>("SELECT past_rounds FROM pnm WHERE id = ?", pnmId)
+          .one();
         const rounds = [...(JSON.parse(past_rounds) as Tally[]), tallies[pnmId] ?? { yes: 0, no: 0 }];
         this.sql.exec("UPDATE pnm SET in_revote = 1, past_rounds = ? WHERE id = ?", JSON.stringify(rounds), pnmId);
         this.sql.exec("DELETE FROM vote WHERE pnm_id = ?", pnmId);
@@ -568,12 +599,7 @@ export class VotingRoom extends DurableObject<Env> {
 
   // Everyone whose ballot counts, which includes kicked members who voted before removal.
   private ballotCount(): number {
-    return this.sql
-      .exec<{ count: number }>(`
-        SELECT COUNT(*) AS count FROM member
-        WHERE kicked = 0 OR EXISTS (SELECT 1 FROM vote WHERE vote.member_id = member.id)
-      `)
-      .one().count;
+    return this.sql.exec<{ count: number }>(BALLOT_COUNT_SQL).one().count;
   }
 
   private effectiveBudget(): number {
@@ -595,7 +621,9 @@ export class VotingRoom extends DurableObject<Env> {
 
   private members(): MemberInfo[] {
     return this.sql
-      .exec<{ handle: string; name: string }>("SELECT handle, name FROM member WHERE kicked = 0 ORDER BY joined_at, rowid")
+      .exec<{ handle: string; name: string }>(
+        "SELECT handle, name FROM member WHERE kicked = 0 ORDER BY joined_at, rowid",
+      )
       .toArray();
   }
 
@@ -608,13 +636,7 @@ export class VotingRoom extends DurableObject<Env> {
 
   private tallies(): Record<string, Tally> {
     const tallies: Record<string, Tally> = {};
-    const rows = this.sql.exec<{ id: string; yes: number; no: number }>(`
-      SELECT pnm.id AS id,
-             COUNT(CASE WHEN vote.value = 'yes' THEN 1 END) AS yes,
-             COUNT(CASE WHEN vote.value = 'no' THEN 1 END) AS no
-      FROM pnm LEFT JOIN vote ON vote.pnm_id = pnm.id
-      GROUP BY pnm.id
-    `);
+    const rows = this.sql.exec<{ id: string; yes: number; no: number }>(TALLIES_SQL);
     for (const { id, yes, no } of rows) tallies[id] = { yes, no };
     return tallies;
   }
@@ -658,6 +680,7 @@ export class VotingRoom extends DurableObject<Env> {
     return { rows: ranked.map(({ row }) => row), cutLine, tie: findTie(ranked, cutLine) };
   }
 
+  // The full state one socket needs after joining or reconnecting, trimmed to what its role may see.
   private snapshot({ role, memberId }: Attachment): Snapshot {
     const room = this.room();
     const isHost = role === "host";
@@ -714,9 +737,10 @@ export class VotingRoom extends DurableObject<Env> {
     }
   }
 
-  private broadcast(message: ServerMessage, except?: WebSocket) {
+  // Every joined socket, whatever its role.
+  private broadcast(message: ServerMessage) {
     for (const socket of this.ctx.getWebSockets()) {
-      if (socket !== except && this.attachment(socket)) this.send(socket, message);
+      if (this.attachment(socket)) this.send(socket, message);
     }
   }
 

@@ -18,10 +18,12 @@ export type PhotoImportResult =
   | { status: "unavailable" }
   | { status: "too_large" };
 
+// The R2 key behind a stored photo address, or null for any other address.
 export function photoKey(photoUrl: string): string | null {
   return photoUrl.startsWith(PHOTO_PATH_PREFIX) ? photoUrl.slice(PHOTO_PATH_PREFIX.length) : null;
 }
 
+// Keys are random and never reused, so a stored photo can be cached forever.
 export async function servePhoto(env: Env, key: string): Promise<Response> {
   const photo = await env.PHOTOS.get(key);
   if (!photo) return new Response("Not found", { status: 404 });

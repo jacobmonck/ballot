@@ -33,6 +33,7 @@ export function saveName(code: string, name: string) {
   write(`voting:${code}:name`, name);
 }
 
+// The host key stays on the device that made the room, so the host can reload without the link.
 export function loadHostKey(code: string): string | null {
   return read(`voting:${code}:host`);
 }

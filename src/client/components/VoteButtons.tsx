@@ -62,10 +62,13 @@ export function VoteButtons({
           <span role="status" className="type-caption text-brass">
             Sending your vote
           </span>
-        ) : value && !disabled && (
-          <button type="button" className="link type-caption" onClick={() => onVote(null)}>
-            Clear my vote
-          </button>
+        ) : (
+          value &&
+          !disabled && (
+            <button type="button" className="link type-caption" onClick={() => onVote(null)}>
+              Clear my vote
+            </button>
+          )
         )}
       </div>
     </div>

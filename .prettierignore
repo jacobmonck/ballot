@@ -1,0 +1,7 @@
+bun.lock
+dist
+.wrangler
+node_modules
+worker-configuration.d.ts
+*.csv
+*.md

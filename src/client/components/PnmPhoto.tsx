@@ -8,6 +8,7 @@ function initials(name: string) {
     .join("");
 }
 
+// Falls back to initials when there is no photo or it fails to load, such as an unshared Drive file.
 export function PnmPhoto({
   name,
   url,

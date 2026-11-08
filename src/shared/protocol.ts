@@ -1,3 +1,5 @@
+// Messages and types shared by the Worker and the client. Both sides of the socket import this file.
+
 export type VoteValue = "yes" | "no";
 export type Phase = "setup" | "live" | "ended";
 export type Role = "brother" | "host" | "projector";
@@ -71,6 +73,7 @@ export interface ClassMember {
   photoUrl: string | null;
 }
 
+// Everything a client may send. The Worker checks each one in validate.ts before use.
 export type ClientMessage =
   | { type: "join"; as: "brother"; memberId: string; name: string }
   | { type: "join"; as: "host"; hostKey: string }
@@ -112,6 +115,7 @@ export interface Snapshot {
   hostOnly?: { hostKey: string; projectorKey: string; tallies: Record<string, Tally>; results: Results | null };
 }
 
+// Everything the room sends. A snapshot replaces client state, and the rest patch it.
 export type ServerMessage =
   | Snapshot
   | { type: "focus"; pnm: Pnm; progress: Progress }

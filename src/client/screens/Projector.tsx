@@ -29,6 +29,7 @@ const SEATS_WHEN_DONE = { width: 88, height: 64, minSeat: 7.5 };
 const DRIFT_HOLD_MS = 4000;
 const DRIFT_VW_PER_S = 2.5;
 
+// The room's big screen. The key rides in the URL hash, so it never reaches server logs.
 export function Projector() {
   const code = useParams().code!.toUpperCase();
   const projectorKey = useMemo(() => location.hash.slice(1), []);
@@ -251,7 +252,10 @@ function Finale({ members, connection }: { members: ClassMember[]; connection: C
       celebrate={done}
     >
       <ConnectionBanner connection={connection} />
-      <main className={`flex h-dvh flex-col justify-center overflow-hidden px-[5vw] ${done ? "pb-[10vh]" : ""}`} aria-live="polite">
+      <main
+        className={`flex h-dvh flex-col justify-center overflow-hidden px-[5vw] ${done ? "pb-[10vh]" : ""}`}
+        aria-live="polite"
+      >
         {done && (
           <motion.h1
             className="mb-[2vh] text-center font-display text-[min(5.5vw,10vh)] leading-none font-bold tracking-[-0.03em]"
@@ -476,7 +480,10 @@ function Spotlight({
           <Verdict tally={revealed} total={total} />
         ) : (
           <>
-            <p className="mt-[2.5vw] flex items-baseline gap-[0.8vw] text-[2.5vw] font-medium tabular-nums" aria-live="polite">
+            <p
+              className="mt-[2.5vw] flex items-baseline gap-[0.8vw] text-[2.5vw] font-medium tabular-nums"
+              aria-live="polite"
+            >
               <motion.span
                 key={voted}
                 className={`font-display text-[5.5vw] leading-none font-bold tracking-[-0.03em] ${allIn ? "text-brass" : ""}`}

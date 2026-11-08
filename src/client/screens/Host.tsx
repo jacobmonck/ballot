@@ -18,6 +18,7 @@ type Send = (message: ClientMessage) => void;
 // Tall enough for the header and 12 rows; the rest scroll. Row and header heights are set on the table.
 const LIST_MAX_HEIGHT = "max-h-[calc(2.5rem+12*2.75rem)]";
 
+// The host's control panel. Asks for the host key when this device doesn't have it saved.
 export function Host() {
   const code = useParams().code!.toUpperCase();
   const hostKey = useMemo(() => loadHostKey(code), [code]);
@@ -211,7 +212,11 @@ function LiveList({ room, send }: { room: Snapshot; send: Send }) {
       <div className="panel flex flex-col gap-5 p-4 sm:p-5">
         <div className="flex items-center gap-5">
           {focused && (
-            <PnmPhoto name={focused.name} url={focused.photoUrl} className="size-24 shrink-0 rounded-[0.875rem] text-3xl" />
+            <PnmPhoto
+              name={focused.name}
+              url={focused.photoUrl}
+              className="size-24 shrink-0 rounded-[0.875rem] text-3xl"
+            />
           )}
           <div className="min-w-0 flex-1">
             {room.revote && (
@@ -352,7 +357,11 @@ function Members({ room, send }: { room: Snapshot; send: Send }) {
           <MemberList
             members={room.members}
             onKick={(member) => {
-              if (confirm(`Remove ${member.name}? They can't vote again. Votes they already cast stay counted, because deleting them would reveal how they voted.`)) {
+              if (
+                confirm(
+                  `Remove ${member.name}? They can't vote again. Votes they already cast stay counted, because deleting them would reveal how they voted.`,
+                )
+              ) {
                 send({ type: "kick", handle: member.handle });
               }
             }}
@@ -415,11 +424,24 @@ function HostKey({ hostKey }: { hostKey: string }) {
     <details className="panel group p-5">
       <summary className="type-headline flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
         Host key
-        <svg viewBox="0 0 12 12" className="size-3 text-chalk transition-transform group-open:rotate-180" aria-hidden="true">
-          <path d="M2 4l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <svg
+          viewBox="0 0 12 12"
+          className="size-3 text-chalk transition-transform group-open:rotate-180"
+          aria-hidden="true"
+        >
+          <path
+            d="M2 4l4 4 4-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       </summary>
-      <p className="type-caption mt-2 text-chalk">Save this. If this device dies, paste it on another one to keep running the room.</p>
+      <p className="type-caption mt-2 text-chalk">
+        Save this. If this device dies, paste it on another one to keep running the room.
+      </p>
       <div className="mt-3 flex items-center gap-2">
         <code className="min-w-0 flex-1 truncate rounded-lg bg-black/25 px-2.5 py-2 text-sm">{hostKey}</code>
         <button

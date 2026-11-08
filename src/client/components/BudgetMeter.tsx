@@ -3,15 +3,8 @@ import { flick } from "../feel";
 
 const MAX_MARBLES = 60;
 
-export function BudgetMeter({
-  used,
-  budget,
-  isDefault,
-}: {
-  used: number;
-  budget: number;
-  isDefault: boolean;
-}) {
+// A brother's remaining Yes votes, drawn as marbles when there are few enough to count at a glance.
+export function BudgetMeter({ used, budget, isDefault }: { used: number; budget: number; isDefault: boolean }) {
   if (isDefault) return <p className="type-caption text-center text-chalk">Vote Yes as often as you like.</p>;
 
   const left = Math.max(0, budget - used);

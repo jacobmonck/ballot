@@ -2,7 +2,18 @@ import { SELF, env, evictDurableObject, runDurableObjectAlarm, runInDurableObjec
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { VotingRoom } from "../src/worker/room";
 import { CLOSE_KICKED } from "../src/shared/protocol";
-import { connect, createRoom, fakePnms, focus, joinBrother, joinHost, membersUntil, projectorKey, seededRoom, settle } from "./helpers";
+import {
+  connect,
+  createRoom,
+  fakePnms,
+  focus,
+  joinBrother,
+  joinHost,
+  membersUntil,
+  projectorKey,
+  seededRoom,
+  settle,
+} from "./helpers";
 
 describe("rooms", () => {
   it("creates a room with a valid code and unique host key", async () => {

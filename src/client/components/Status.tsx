@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { materialize, settle } from "../feel";
 import type { RoomState } from "../useRoom";
 
+// Shown only while a dropped socket is reconnecting.
 export function ConnectionBanner({ connection }: { connection: RoomState["connection"] }) {
   return (
     <AnimatePresence>
@@ -21,6 +22,7 @@ export function ConnectionBanner({ connection }: { connection: RoomState["connec
   );
 }
 
+// Shows each new notice for a few seconds. A repeat of the same message still shows, since it has a new id.
 export function Notice({ notice }: { notice: RoomState["notice"] }) {
   const [visibleId, setVisibleId] = useState<number | null>(null);
 
@@ -48,6 +50,7 @@ export function Notice({ notice }: { notice: RoomState["notice"] }) {
   );
 }
 
+// A full-screen message for loading, errors and dead ends.
 export function CenteredMessage({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <motion.main

@@ -5,6 +5,7 @@ import { ROOM_CODE_LENGTH } from "../../shared/protocol";
 import { flick, settle } from "../feel";
 import { saveHostKey, saveName } from "../storage";
 
+// The landing page: brothers enter a code and name, and a host can start a new room.
 export function Join() {
   const navigate = useNavigate();
   const [params] = useSearchParams();

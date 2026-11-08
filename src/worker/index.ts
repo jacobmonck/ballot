@@ -4,6 +4,14 @@ import { importPhoto, PHOTO_PATH_PREFIX, servePhoto } from "./photos";
 
 export { VotingRoom } from "./room";
 
+// Routes:
+//   POST /api/rooms                        create a room
+//   GET  /api/rooms/:code                  check a room exists
+//   GET  /api/rooms/:code/ws               open the room's WebSocket
+//   POST /api/rooms/:code/photos/:pnmId    copy a PNM's Drive photo into R2 (host only)
+//   GET  /photos/:code/:id                 serve a stored photo
+// Everything else falls through to the static client.
+
 const MAX_CODE_ATTEMPTS = 8;
 const ROOM_ROUTE = /^\/api\/rooms\/([^/]+)(\/ws)?$/;
 const PHOTO_IMPORT_ROUTE = /^\/api\/rooms\/([^/]+)\/photos\/([0-9a-f-]{36})$/;
@@ -21,6 +29,7 @@ async function overLimit(limiter: RateLimit, request: Request): Promise<boolean>
   return !(await limiter.limit({ key })).success;
 }
 
+// Codes are random, so a collision just means drawing again.
 async function createRoom(env: Env): Promise<Response> {
   for (let attempt = 0; attempt < MAX_CODE_ATTEMPTS; attempt++) {
     const code = generateRoomCode();

@@ -67,6 +67,7 @@ function parseJoin(fields: Record<string, unknown>): ClientMessage | null {
   return null;
 }
 
+// Checks an untrusted socket message field by field. Anything malformed or oversized becomes null.
 export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | null {
   if (typeof raw !== "string" || raw.length > MAX_MESSAGE_CHARS) return null;
   let fields: unknown;

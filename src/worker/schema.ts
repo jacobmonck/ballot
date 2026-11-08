@@ -1,3 +1,4 @@
+// Brings a room's SQLite schema up to date. Each step runs once, in order, and is never edited after release.
 export function migrate(sql: SqlStorage) {
   sql.exec(`
     CREATE TABLE IF NOT EXISTS _sql_schema_migrations (

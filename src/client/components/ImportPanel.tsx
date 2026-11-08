@@ -112,7 +112,9 @@ function PhotoCheck({ pnms, replacing, onReplace }: { pnms: Pnm[]; replacing: bo
         </button>
       </div>
       <p className={`mt-0.5 ${problems > 0 ? "text-alert" : "text-chalk"}`}>
-        {problems > 0 ? `${problems} without a working photo. They'll show initials.` : "Check that every photo loaded."}
+        {problems > 0
+          ? `${problems} without a working photo. They'll show initials.`
+          : "Check that every photo loaded."}
       </p>
       <ul className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(5.5rem,1fr))] gap-3">
         {pnms.map((pnm) => (

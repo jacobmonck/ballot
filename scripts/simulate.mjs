@@ -19,15 +19,59 @@ const PING_MS = 25_000;
 const RETRY_MS = 1_000;
 const CLOSE_KICKED = 4001;
 
-const FIRST = ["Alex", "Ben", "Chris", "Dan", "Eli", "Finn", "Gabe", "Hank", "Ian", "Jack", "Kyle", "Leo", "Max", "Nate", "Pete", "Ryan", "Sean", "Tom", "Vince", "Will"];
-const LAST = ["Adams", "Bell", "Cole", "Diaz", "Evans", "Ford", "Gray", "Hill", "Irwin", "James", "Kim", "Lane", "Moore", "Nash", "Ortiz", "Price", "Reyes", "Shaw", "Tran", "Young"];
+const FIRST = [
+  "Alex",
+  "Ben",
+  "Chris",
+  "Dan",
+  "Eli",
+  "Finn",
+  "Gabe",
+  "Hank",
+  "Ian",
+  "Jack",
+  "Kyle",
+  "Leo",
+  "Max",
+  "Nate",
+  "Pete",
+  "Ryan",
+  "Sean",
+  "Tom",
+  "Vince",
+  "Will",
+];
+const LAST = [
+  "Adams",
+  "Bell",
+  "Cole",
+  "Diaz",
+  "Evans",
+  "Ford",
+  "Gray",
+  "Hill",
+  "Irwin",
+  "James",
+  "Kim",
+  "Lane",
+  "Moore",
+  "Nash",
+  "Ortiz",
+  "Price",
+  "Reyes",
+  "Shaw",
+  "Tran",
+  "Young",
+];
 
 const stats = { joined: 0, votes: 0, skips: 0, rejected: 0 };
 const bots = new Set();
 let ended = false;
 
 function report() {
-  console.log(`joined ${stats.joined}/${COUNT}, votes ${stats.votes}, skipped ${stats.skips}, rejected ${stats.rejected}`);
+  console.log(
+    `joined ${stats.joined}/${COUNT}, votes ${stats.votes}, skipped ${stats.skips}, rejected ${stats.rejected}`,
+  );
 }
 
 function startBot(index) {
@@ -92,7 +136,7 @@ function startBot(index) {
     const socket = new WebSocket(WS_URL);
     bot.socket = socket;
     let pinger;
-    
+
     socket.onopen = () => {
       socket.send(JSON.stringify({ type: "join", as: "brother", memberId, name }));
       pinger = setInterval(() => socket.send("ping"), PING_MS);
@@ -106,11 +150,9 @@ function startBot(index) {
     socket.onclose = ({ code: closeCode }) => {
       clearInterval(pinger);
 
-      if (closeCode === CLOSE_KICKED) 
-        bot.stopped = true;
+      if (closeCode === CLOSE_KICKED) bot.stopped = true;
 
-      if (!bot.stopped && !ended) 
-        setTimeout(connect, RETRY_MS);
+      if (!bot.stopped && !ended) setTimeout(connect, RETRY_MS);
     };
 
     socket.onerror = () => {};

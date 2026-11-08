@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import type { MemberInfo } from "../../shared/protocol";
 import { flick } from "../feel";
 
+// Names in the room. With onKick, each gets a remove button and repeated names are flagged for the host.
 export function MemberList({ members, onKick }: { members: MemberInfo[]; onKick?: (member: MemberInfo) => void }) {
   const counts = new Map<string, number>();
   for (const { name } of members) {
