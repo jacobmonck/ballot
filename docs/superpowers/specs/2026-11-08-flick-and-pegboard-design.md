@@ -53,7 +53,7 @@ Today `VoteButtons` sends the vote on tap. The new flow on the ballot (`Brother.
    and the `vote` message is sent. A **plain tap on the picked marble also casts** (the user agreed
    to this fallback).
 3. After casting, the phone shows a small marble in the color of the vote cast, with "Your Yes is
-   in" or "Your No is in", and "Change my vote". The phone keeps showing a brother his own vote,
+   in" or "Your No is in", and "Change my vote". The phone keeps showing brothers their own vote,
    as it does today; the "All PNMs" list is unchanged. Only the projector hides it. (My call: the
    spike showed a gold marble, but hiding the choice on your own phone would leave brothers unsure
    what they cast.) Changing goes back to step 1 and the new pick is cast the same way. "Clear my vote"
