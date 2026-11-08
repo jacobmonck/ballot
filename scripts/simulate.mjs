@@ -92,19 +92,27 @@ function startBot(index) {
     const socket = new WebSocket(WS_URL);
     bot.socket = socket;
     let pinger;
+    
     socket.onopen = () => {
       socket.send(JSON.stringify({ type: "join", as: "brother", memberId, name }));
       pinger = setInterval(() => socket.send("ping"), PING_MS);
     };
+
     socket.onmessage = ({ data }) => {
       if (data === "pong") return;
       onMessage(JSON.parse(data));
     };
+
     socket.onclose = ({ code: closeCode }) => {
       clearInterval(pinger);
-      if (closeCode === CLOSE_KICKED) bot.stopped = true;
-      if (!bot.stopped && !ended) setTimeout(connect, RETRY_MS);
+
+      if (closeCode === CLOSE_KICKED) 
+        bot.stopped = true;
+
+      if (!bot.stopped && !ended) 
+        setTimeout(connect, RETRY_MS);
     };
+
     socket.onerror = () => {};
   };
 
