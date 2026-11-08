@@ -139,10 +139,10 @@ export interface Path {
   duration: number;
 }
 
-// Plans a marble's whole trip from the spout to `slot`. The pegs decide only how it bounces: the
+// Plans a marble's whole trip, normally from the spout, to `slot`. The pegs decide only how it bounces: the
 // left and right turns are random, and a run that would end on the wrong side is mirrored, which
 // keeps both bins' paths alike while guaranteeing the bin.
-export function planPath(board: Board, side: Side, slot: Point, random = Math.random): Path {
+export function planPath(board: Board, side: Side, slot: Point, random = Math.random, from = board.spout): Path {
   // True turns right. Nine turns can never cancel out, so the marble always leaves one side of center.
   let turns = Array.from({ length: board.rows }, () => random() < 0.5);
   const rights = turns.filter(Boolean).length;
@@ -150,7 +150,7 @@ export function planPath(board: Board, side: Side, slot: Point, random = Math.ra
 
   const reach = board.radius + board.pegRadius;
   // `hop` is how long the flight that arrives at each point takes.
-  const points: { at: Point; peg: number | null; hop: number }[] = [{ at: board.spout, peg: null, hop: 0 }];
+  const points: { at: Point; peg: number | null; hop: number }[] = [{ at: from, peg: null, hop: 0 }];
   let column = 1;
   turns.forEach((right, row) => {
     if (row > 0 && turns[row - 1]) column++;
@@ -166,17 +166,17 @@ export function planPath(board: Board, side: Side, slot: Point, random = Math.ra
   const arcs: Arc[] = [];
   let start = 0;
   for (let index = 0; index < points.length - 1; index++) {
-    const from = points[index]!;
+    const here = points[index]!;
     const to = points[index + 1]!;
     const duration = to.hop;
     arcs.push({
       start,
       duration,
-      x: from.at.x,
-      y: from.at.y,
-      vx: (to.at.x - from.at.x) / duration,
-      vy: (to.at.y - from.at.y - (board.gravity * duration * duration) / 2) / duration,
-      peg: from.peg,
+      x: here.at.x,
+      y: here.at.y,
+      vx: (to.at.x - here.at.x) / duration,
+      vy: (to.at.y - here.at.y - (board.gravity * duration * duration) / 2) / duration,
+      peg: here.peg,
     });
     start += duration;
   }
