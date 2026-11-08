@@ -1,8 +1,9 @@
 import { useReducedMotion } from "motion/react";
 import { useEffect, useRef } from "react";
 import { MarblePile } from "../marblePile";
+import { MAX_MARBLES } from "../pegboard";
+import { sound } from "../sound";
 
-const MAX_MARBLES = 400;
 const PILE_SHARE_OF_SCREEN = 0.1;
 const MIN_RADIUS_OF_WIDTH = 0.006;
 const MAX_RADIUS_OF_WIDTH = 0.015;
@@ -145,6 +146,7 @@ export function MarblePit({
   capacity,
   yesShown,
   celebrate,
+  clacks,
 }: {
   scene: string;
   count: number;
@@ -152,6 +154,8 @@ export function MarblePit({
   // Null keeps every marble gold: until the host reveals, the screen only shows that a ballot landed.
   yesShown: number | null;
   celebrate: boolean;
+  // Clack as each ballot lands. Every landing sounds the same, so this can't hint at a vote.
+  clacks: boolean;
 }) {
   const reducedMotion = useReducedMotion();
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -159,6 +163,8 @@ export function MarblePit({
   const wake = useRef<() => void>(() => {});
   const shownScene = useRef(scene);
   const revealedScene = useRef<string | null>(null);
+  const clackPitch = useRef<((live: number) => number) | null>(null);
+  clackPitch.current = clacks ? (live) => live / Math.min(capacity, MAX_MARBLES) : null;
 
   useEffect(() => {
     const element = canvas.current;
@@ -206,6 +212,11 @@ export function MarblePit({
     const tick = (now: number) => {
       const moving = simulation.step(Math.min((now - last) / 1000, MAX_FRAME_S));
       last = now;
+      const landings = simulation.takeLandings();
+      if (landings && clackPitch.current) {
+        const pitch = clackPitch.current(simulation.marbles.filter(({ draining }) => !draining).length);
+        for (let landing = 0; landing < landings; landing++) sound.clack(pitch);
+      }
       draw();
       quietFrames = moving ? 0 : quietFrames + 1;
       // A settled pile needs no frames, which keeps a laptop on the projector cool all night.

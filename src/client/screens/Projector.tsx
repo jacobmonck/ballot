@@ -6,6 +6,7 @@ import { MarblePit } from "../components/MarblePit";
 import { MemberList } from "../components/MemberList";
 import { PnmPhoto } from "../components/PnmPhoto";
 import { ProgressBar } from "../components/ProgressBar";
+import { SoundToggle } from "../components/SoundToggle";
 import { CenteredMessage, ConnectionBanner } from "../components/Status";
 import { flick, settle } from "../feel";
 import { type Connection, useRoom } from "../useRoom";
@@ -87,6 +88,7 @@ export function Projector() {
       yesShown={revealed?.yes ?? null}
       glow={total ? voted / total : 0}
       celebrate={allIn}
+      clacks={!revealed}
     >
       <ConnectionBanner connection={connection} />
       <main className="min-h-dvh overflow-hidden">
@@ -113,6 +115,7 @@ function Stage({
   yesShown,
   glow,
   celebrate,
+  clacks = false,
   children,
 }: {
   scene: string;
@@ -121,6 +124,7 @@ function Stage({
   yesShown: number | null;
   glow: number;
   celebrate: boolean;
+  clacks?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -135,9 +139,17 @@ function Stage({
           animate={{ opacity: celebrate ? 1 : glow * 0.7 }}
           transition={settle}
         />
-        <MarblePit scene={scene} count={count} capacity={capacity} yesShown={yesShown} celebrate={celebrate} />
+        <MarblePit
+          scene={scene}
+          count={count}
+          capacity={capacity}
+          yesShown={yesShown}
+          celebrate={celebrate}
+          clacks={clacks}
+        />
       </div>
       <div className="relative">{children}</div>
+      <SoundToggle />
     </>
   );
 }

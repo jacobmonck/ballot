@@ -13,6 +13,8 @@ const HOP_SPEED = 300;
 const FLIP_PER_S = 3.5;
 const MAX_FLIP_DELAY_S = 0.55;
 const CENTER_GAP = 4;
+// How fast a falling marble must meet the pile for the hit to count as landing on it.
+const LANDING_SPEED = 120;
 
 export type Side = "yes" | "no";
 
@@ -25,6 +27,8 @@ export interface Marble {
   alpha: number;
   draining: boolean;
   leaving: boolean;
+  // Has come to rest on the floor or the pile at least once.
+  landed: boolean;
   side: Side | null;
   // Reached its own half, after which the center line holds it there.
   sorted: boolean;
@@ -45,6 +49,7 @@ export class MarblePile {
   private radius = 10;
   private spawnClock = 0;
   private sides: { yes: number } | null = null;
+  private landings = 0;
 
   resize(width: number, height: number) {
     this.width = width;
@@ -106,6 +111,19 @@ export class MarblePile {
     return yeses < this.sides.yes ? "yes" : "no";
   }
 
+  // Marbles that first landed since the last call.
+  takeLandings() {
+    const { landings } = this;
+    this.landings = 0;
+    return landings;
+  }
+
+  private land(marble: Marble) {
+    if (marble.landed || marble.draining) return;
+    marble.landed = true;
+    this.landings++;
+  }
+
   hop() {
     for (const marble of this.marbles) {
       if (marble.draining) continue;
@@ -134,6 +152,7 @@ export class MarblePile {
         alpha: 1,
         draining: false,
         leaving: false,
+        landed: false,
         side,
         sorted: side !== null,
         flip: this.sides ? 1 : 0,
@@ -174,6 +193,10 @@ export class MarblePile {
             b.y += ny * push;
             const approach = ((b.vx - a.vx) * nx + (b.vy - a.vy) * ny) / distance;
             if (approach >= 0) continue;
+            if (-approach > LANDING_SPEED) {
+              if (a.landed) this.land(b);
+              if (b.landed) this.land(a);
+            }
             const impulse = (-(1 + BOUNCE) * approach) / 2 / distance;
             a.vx -= nx * impulse;
             a.vy -= ny * impulse;
@@ -198,6 +221,7 @@ export class MarblePile {
       }
       if (marble.side && !marble.draining) this.holdSide(marble);
       if (!marble.draining && marble.y > height - radius) {
+        this.land(marble);
         marble.y = height - radius;
         marble.vy = -Math.abs(marble.vy) * BOUNCE;
         marble.vx *= ROLL_FRICTION;
