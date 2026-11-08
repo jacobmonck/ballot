@@ -53,8 +53,10 @@ const DRIVE_ID = /drive\.google\.com\/(?:file\/d\/|(?:open|uc)\?(?:.*&)?id=)([\w
 // Turns a Drive share link into its thumbnail address, which serves the image itself.
 export function normalizePhotoUrl(raw: string): string | null {
   // File-upload questions list multiple files as a comma-separated cell.
-  const url = raw.split(",")[0]!.trim();
-  if (!/^https?:\/\//i.test(url)) return null;
+  const first = raw.split(",")[0]!.trim();
+  if (!/^https?:\/\//i.test(first)) return null;
+  // The page only loads https images, so an http link would never show.
+  const url = first.replace(/^http:/i, "https:");
   const driveId = DRIVE_ID.exec(url)?.[1];
   return driveId ? `https://drive.google.com/thumbnail?id=${driveId}&sz=w800` : url;
 }

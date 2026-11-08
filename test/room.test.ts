@@ -163,11 +163,14 @@ describe("host controls", () => {
     expect((await host.next("snapshot")).pnmCount).toBe(150);
   });
 
-  it("rejects an import with a nameless PNM or a non-http photo", async () => {
+  it("rejects an import with a nameless PNM or a non-https photo", async () => {
     const { host } = await seededRoom(1);
     host.send({ type: "importPnms", pnms: [{ name: " ", photoUrl: null, answers: [] }] });
     expect((await host.next("error")).code).toBe("bad_message");
     host.send({ type: "importPnms", pnms: [{ name: "A", photoUrl: "javascript:alert(1)", answers: [] }] });
+    expect((await host.next("error")).code).toBe("bad_message");
+    // The page's CSP only loads https images, so an http photo could never show.
+    host.send({ type: "importPnms", pnms: [{ name: "A", photoUrl: "http://example.com/a.jpg", answers: [] }] });
     expect((await host.next("error")).code).toBe("bad_message");
   });
 
@@ -734,6 +737,16 @@ describe("results", () => {
     expect((await a.next("myVote")).value).toBe("yes");
     a.send({ type: "vote", pnmId: ids[2]!, value: "yes" });
     expect((await a.next("myVote")).value).toBe("yes");
+  });
+
+  it("refuses a class size change during a revote", async () => {
+    const { host } = await tiedRoom();
+    host.send({ type: "endSession" });
+    await host.next("ended");
+    host.send({ type: "startRevote" });
+    await host.next("snapshot");
+    host.send({ type: "setBudget", yesBudget: 3 });
+    expect((await host.next("error")).code).toBe("wrong_phase");
   });
 
   it("can revote again when the revote ties", async () => {

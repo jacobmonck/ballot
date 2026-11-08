@@ -60,6 +60,10 @@ describe("normalizePhotoUrl", () => {
   it("leaves direct URLs alone", () => {
     expect(normalizePhotoUrl("https://example.com/a.jpg")).toBe("https://example.com/a.jpg");
   });
+  it("upgrades http links to https", () => {
+    expect(normalizePhotoUrl("http://example.com/a.jpg")).toBe("https://example.com/a.jpg");
+    expect(normalizePhotoUrl("HTTP://drive.google.com/open?id=abc_123-X")).toBe(thumbnail);
+  });
   it("uses the first link of a multi-file upload answer", () => {
     expect(normalizePhotoUrl("https://example.com/a.jpg, https://example.com/b.jpg")).toBe("https://example.com/a.jpg");
   });

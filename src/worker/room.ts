@@ -42,6 +42,12 @@ const BALLOT_COUNT_SQL = `
   WHERE kicked = 0 OR EXISTS (SELECT 1 FROM vote WHERE vote.member_id = member.id)
 `;
 
+const TALLY_SQL = `
+  SELECT COUNT(CASE WHEN value = 'yes' THEN 1 END) AS yes,
+         COUNT(CASE WHEN value = 'no' THEN 1 END) AS no
+  FROM vote WHERE pnm_id = ?
+`;
+
 const TALLIES_SQL = `
   SELECT pnm.id AS id,
          COUNT(CASE WHEN vote.value = 'yes' THEN 1 END) AS yes,
@@ -411,8 +417,7 @@ export class VotingRoom extends DurableObject<Env> {
       if (this.attachment(socket)?.memberId === memberId) this.send(socket, myVote);
     }
     this.queueRoomUpdate(false);
-    const tally = this.tallies()[pnmId] ?? { yes: 0, no: 0 };
-    this.sendToHosts({ type: "tally", pnmId, ...tally });
+    this.sendToHosts({ type: "tally", pnmId, ...this.tally(pnmId) });
   }
 
   private importPnms(pnms: PnmInput[]) {
@@ -453,6 +458,10 @@ export class VotingRoom extends DurableObject<Env> {
     if (this.room().phase === "ended") throw new Refusal("session_ended", "Voting has ended.");
     const count = this.pnmCount();
     if (count === 0) throw new Refusal("wrong_phase", "Import PNMs before setting the budget.");
+    // The revote is deciding the spots left under the current cut line, so that line can't move under it.
+    if (this.room().revote_spots !== null) {
+      throw new Refusal("wrong_phase", "Finish the revote before changing the class size.");
+    }
     const stored = yesBudget === null ? 0 : Math.max(1, Math.min(yesBudget, count));
     const { spent } = this.sql.exec<{ spent: number }>(MOST_YES_SPENT_SQL).one();
     if (stored !== 0 && stored < spent) {
@@ -486,7 +495,7 @@ export class VotingRoom extends DurableObject<Env> {
       throw new Refusal("wrong_phase", "Only the PNM on screen can be revealed.");
     }
     // Votes stay open after a reveal, so the tally is frozen here. A reconnect must not show later changes.
-    const { yes, no } = this.tallies()[pnmId] ?? { yes: 0, no: 0 };
+    const { yes, no } = this.tally(pnmId);
     this.sql.exec("UPDATE room SET revealed_pnm_id = ?, revealed_yes = ?, revealed_no = ?", pnmId, yes, no);
     this.sendToScreens({ type: "revealed", pnmId, yes, no });
   }
@@ -632,6 +641,11 @@ export class VotingRoom extends DurableObject<Env> {
       .exec<{ voted: number }>("SELECT COUNT(*) AS voted FROM vote WHERE pnm_id = ?", pnmId)
       .one();
     return { pnmId, voted, total: this.ballotCount() };
+  }
+
+  // One PNM's counts. Votes arrive in bursts, so this avoids counting every PNM on each one.
+  private tally(pnmId: string): Tally {
+    return this.sql.exec<{ yes: number; no: number }>(TALLY_SQL, pnmId).one();
   }
 
   private tallies(): Record<string, Tally> {

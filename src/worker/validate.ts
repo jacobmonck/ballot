@@ -30,7 +30,8 @@ function parsePhotoUrl(value: unknown): string | null | undefined {
   const text = shortText(value, MAX_URL);
   if (text === null || !URL.canParse(text)) return undefined;
   const { protocol } = new URL(text);
-  return protocol === "https:" || protocol === "http:" ? text : undefined;
+  // The page's CSP only loads https images.
+  return protocol === "https:" ? text : undefined;
 }
 
 function parsePnm(value: unknown): PnmInput | null {
