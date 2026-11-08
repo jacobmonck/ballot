@@ -174,7 +174,7 @@ export function useRoom(code: string, join: ClientMessage | null) {
   useEffect(() => {
     for (const [pnmId, value] of Object.entries(state.pendingVotes)) send({ type: "vote", pnmId, value });
     // Resend only on a fresh join, not whenever a tap adds to the pending list.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [state.snapshotCount, send]);
 
   return { ...state, send, vote };

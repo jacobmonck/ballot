@@ -9,8 +9,8 @@ import { Brother } from "./screens/Brother";
 import { Join } from "./screens/Join";
 
 // Phones only need the join page and ballot, so the host and projector screens load on demand.
-const Host = lazy(() => import("./screens/Host").then(({ Host }) => ({ default: Host })));
-const Projector = lazy(() => import("./screens/Projector").then(({ Projector }) => ({ default: Projector })));
+const Host = lazy(() => import("./screens/Host").then((module) => ({ default: module.Host })));
+const Projector = lazy(() => import("./screens/Projector").then((module) => ({ default: module.Projector })));
 
 // Brothers vote at /r, the host runs the room at /host, and the projector shows it at /p.
 createRoot(document.getElementById("root")!).render(

@@ -16,10 +16,13 @@ export function ImportPanel({ pnms, onImport }: { pnms: Pnm[]; onImport: (pnms: 
   const [replacing, setReplacing] = useState(false);
   const showForm = pnms.length === 0 || replacing;
   const rows = useMemo(() => parseCsv(text), [text]);
-  const headers = rows[0] ?? [];
+  const headers = useMemo(() => rows[0] ?? [], [rows]);
   const [overrides, setOverrides] = useState<Record<string, ColumnKind>>({});
-  const columns = headers.map((header, index) => overrides[`${index}:${header}`] ?? guessColumn(header));
-  const parsed = useMemo(() => buildPnms(rows, columns), [rows, columns.join()]);
+  const columns = useMemo(
+    () => headers.map((header, index) => overrides[`${index}:${header}`] ?? guessColumn(header)),
+    [headers, overrides],
+  );
+  const parsed = useMemo(() => buildPnms(rows, columns), [rows, columns]);
   const hasPhotoColumn = columns.includes("photo");
 
   return (
