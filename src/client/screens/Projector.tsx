@@ -1,7 +1,7 @@
 import { animate, AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type ReactNode, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import type { ClassMember, ClientMessage, Pnm, Snapshot, Tally } from "../../shared/protocol";
+import type { ClassMember, ClientMessage, Pnm, Revealed, Snapshot, Tally } from "../../shared/protocol";
 import { MarblePit } from "../components/MarblePit";
 import { MemberList } from "../components/MemberList";
 import { PnmPhoto } from "../components/PnmPhoto";
@@ -53,7 +53,8 @@ export function Projector() {
     () => revealedFocus && { tally: { yes: revealedFocus.yes, no: revealedFocus.no }, live },
     [revealedFocus, live],
   );
-  const [dropDoneFor, setDropDoneFor] = useState<string | null>(null);
+  // The reveal whose drop has finished. A later reveal of the same PNM is a new object, so it waits again.
+  const [dropDoneFor, setDropDoneFor] = useState<Revealed | null>(null);
   const votesCast = revealedFocus ? revealedFocus.yes + revealedFocus.no : 0;
 
   // With reduced motion there's no drop to wait for, but the room still hears the result lock in.
@@ -98,7 +99,7 @@ export function Projector() {
   const revealed = revealedFocus;
   // The pegboard takes the screen for a reveal, unless there's nothing to drop or motion is reduced.
   const onBoard = !!revealed && votesCast > 0 && !reducedMotion;
-  const dropDone = !live || dropDoneFor === pnm.id;
+  const dropDone = !live || dropDoneFor === revealed;
   const place = room.revote
     ? `Revote ${room.revote.pnmIds.indexOf(pnm.id) + 1} of ${room.revote.pnmIds.length}`
     : `PNM ${pnm.ordinal} of ${room.pnmCount}`;
@@ -109,7 +110,7 @@ export function Projector() {
       count={revealed ? revealed.yes + revealed.no : voted}
       capacity={total}
       reveal={reveal}
-      onDropDone={() => setDropDoneFor(pnm.id)}
+      onDropDone={() => setDropDoneFor(revealed)}
       glow={total ? voted / total : 0}
       celebrate={allIn}
       clacks={!revealed}
