@@ -5,6 +5,12 @@ import type { ErrorCode, ServerMessage, Snapshot, VoteValue } from "../shared/pr
 // Refusals that mean a tapped vote never landed, so it shouldn't be resent.
 const VOTE_REJECTIONS: ErrorCode[] = ["budget_exhausted", "not_seen", "not_in_revote", "session_ended"];
 
+// Refusals that mean tapped picks never landed.
+const PICK_REJECTIONS: ErrorCode[] = ["not_voting", "bad_ballot", "session_ended"];
+
+const sameIds = (a: string[] | undefined, b: string[]) =>
+  a !== undefined && a.length === b.length && a.every((id) => b.includes(id));
+
 export type Connection = "connecting" | "open" | "reconnecting" | "refused";
 
 export interface RoomState {
@@ -14,6 +20,8 @@ export interface RoomState {
   refusal: string | null;
   // Votes tapped but not yet confirmed. They are resent after every snapshot and overwrite safely.
   pendingVotes: Record<string, VoteValue | null>;
+  // Election picks tapped but not yet confirmed, resent after every snapshot like votes.
+  pendingPicks: Record<string, string[]>;
   snapshotCount: number;
 }
 
@@ -21,6 +29,7 @@ export type Action =
   | { kind: "connection"; connection: Connection }
   | { kind: "refused"; message: string }
   | { kind: "voteTapped"; pnmId: string; value: VoteValue | null }
+  | { kind: "picksTapped"; positionId: string; candidateIds: string[] }
   | { kind: "server"; message: ServerMessage };
 
 // Applies one server patch to the snapshot. Messages that don't change the room return it as is.
@@ -65,6 +74,31 @@ function applyToRoom(room: Snapshot, message: ServerMessage): Snapshot {
           }
         : room;
 
+    // Progress for a position that's no longer on screen arrived late, so it's dropped.
+    case "positionProgress":
+      return message.positionId === room.focusPositionId
+        ? {
+            ...room,
+            positionProgress: { positionId: message.positionId, voted: message.voted, total: message.total },
+          }
+        : room;
+
+    case "positionTally": {
+      const detail = room.hostOnly?.positionDetails[message.positionId];
+      return room.hostOnly && detail
+        ? {
+            ...room,
+            hostOnly: {
+              ...room.hostOnly,
+              positionDetails: {
+                ...room.hostOnly.positionDetails,
+                [message.positionId]: { ...detail, live: { ballots: message.ballots, picks: message.picks } },
+              },
+            },
+          }
+        : room;
+    }
+
     case "revealed":
       return { ...room, revealed: { pnmId: message.pnmId, yes: message.yes, no: message.no } };
 
@@ -77,6 +111,14 @@ function applyToRoom(room: Snapshot, message: ServerMessage): Snapshot {
       if (message.value === null) delete myVotes[message.pnmId];
       else myVotes[message.pnmId] = message.value;
       return { ...room, myVotes, yesUsed: message.yesUsed };
+    }
+
+    // A cleared pick is removed rather than stored as an empty list.
+    case "myPicks": {
+      const myPicks = { ...room.myPicks };
+      if (message.candidateIds.length === 0) delete myPicks[message.positionId];
+      else myPicks[message.positionId] = message.candidateIds;
+      return { ...room, myPicks };
     }
 
     case "ended":
@@ -104,6 +146,10 @@ export function reducer(state: RoomState, action: Action): RoomState {
     return { ...state, pendingVotes: { ...state.pendingVotes, [action.pnmId]: action.value } };
   }
 
+  if (action.kind === "picksTapped") {
+    return { ...state, pendingPicks: { ...state.pendingPicks, [action.positionId]: action.candidateIds } };
+  }
+
   const { message } = action;
 
   // A snapshot replaces the whole room, and counting them tells the hook when to resend pending votes.
@@ -117,6 +163,7 @@ export function reducer(state: RoomState, action: Action): RoomState {
       ...state,
       notice: { id: (state.notice?.id ?? 0) + 1, message: message.message },
       pendingVotes: VOTE_REJECTIONS.includes(message.code) ? {} : state.pendingVotes,
+      pendingPicks: PICK_REJECTIONS.includes(message.code) ? {} : state.pendingPicks,
     };
   }
 
@@ -124,6 +171,12 @@ export function reducer(state: RoomState, action: Action): RoomState {
   if (message.type === "myVote" && state.pendingVotes[message.pnmId] === message.value) {
     const { [message.pnmId]: _confirmed, ...pendingVotes } = state.pendingVotes;
     return { ...state, pendingVotes, room: state.room && applyToRoom(state.room, message) };
+  }
+
+  // The server confirmed these picks, in whatever order it stored them, so they're no longer pending.
+  if (message.type === "myPicks" && sameIds(state.pendingPicks[message.positionId], message.candidateIds)) {
+    const { [message.positionId]: _confirmed, ...pendingPicks } = state.pendingPicks;
+    return { ...state, pendingPicks, room: state.room && applyToRoom(state.room, message) };
   }
 
   return state.room ? { ...state, room: applyToRoom(state.room, message) } : state;
@@ -135,5 +188,6 @@ export const initialState: RoomState = {
   notice: null,
   refusal: null,
   pendingVotes: {},
+  pendingPicks: {},
   snapshotCount: 0,
 };

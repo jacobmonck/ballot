@@ -118,6 +118,43 @@ describe("room state", () => {
     expect(host.room?.hostOnly?.tallies).toEqual({ a: { yes: 2, no: 1 } });
   });
 
+  it("confirms pending picks when the server echoes them in any order", () => {
+    const pending = reducer(joined(), { kind: "picksTapped", positionId: "p", candidateIds: ["x", "y"] });
+    expect(pending.pendingPicks).toEqual({ p: ["x", "y"] });
+
+    const confirmed = server(pending, { type: "myPicks", positionId: "p", candidateIds: ["y", "x"] });
+    expect(confirmed.pendingPicks).toEqual({});
+    expect(confirmed.room?.myPicks).toEqual({ p: ["y", "x"] });
+
+    const cleared = server(confirmed, { type: "myPicks", positionId: "p", candidateIds: [] });
+    expect(cleared.room?.myPicks).toEqual({});
+  });
+
+  it("drops pending picks when the server says the round is closed", () => {
+    const pending = reducer(joined(), { kind: "picksTapped", positionId: "p", candidateIds: ["x"] });
+    const closed = server(pending, { type: "error", code: "not_voting", message: "Voting is closed." });
+    expect(closed.pendingPicks).toEqual({});
+  });
+
+  it("ignores position progress for a position not on screen", () => {
+    const room = joined({ focusPositionId: "p", positionProgress: { positionId: "p", voted: 0, total: 4 } });
+    const stale = server(room, { type: "positionProgress", positionId: "old", voted: 3, total: 4 });
+    expect(stale.room?.positionProgress).toEqual({ positionId: "p", voted: 0, total: 4 });
+
+    const fresh = server(room, { type: "positionProgress", positionId: "p", voted: 2, total: 4 });
+    expect(fresh.room?.positionProgress).toEqual({ positionId: "p", voted: 2, total: 4 });
+  });
+
+  it("applies position tallies only for hosts", () => {
+    const tally: ServerMessage = { type: "positionTally", positionId: "p", ballots: 2, picks: { x: 2 } };
+    expect(server(joined(), tally).room?.hostOnly).toBeUndefined();
+
+    const detail = { candidates: [], rounds: [], live: { ballots: 0, picks: {} } };
+    const hostOnly = { hostKey: "h", projectorKey: "p", tallies: {}, results: null, positionDetails: { p: detail } };
+    const host = server(joined({ role: "host", hostOnly }), tally);
+    expect(host.room?.hostOnly?.positionDetails.p?.live).toEqual({ ballots: 2, picks: { x: 2 } });
+  });
+
   it("ignores room updates that arrive before the first snapshot", () => {
     expect(server(initialState, { type: "joinLock", locked: true })).toBe(initialState);
   });
