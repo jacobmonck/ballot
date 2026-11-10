@@ -1,5 +1,5 @@
 import { SELF, env, runInDurableObject } from "cloudflare:test";
-import type { ClientMessage, PnmInput, ServerMessage } from "../src/shared/protocol";
+import type { ClientMessage, PnmInput, PositionInput, ServerMessage } from "../src/shared/protocol";
 
 type Of<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T }>;
 
@@ -142,4 +142,24 @@ export async function settle(client: Client) {
     const { code } = await client.next("error");
     if (code === "not_seen" || code === "forbidden") return;
   }
+}
+
+export function fakePositions(): PositionInput[] {
+  return [
+    { title: "President", seats: 1, candidates: ["Alex", "Blake", "Casey"] },
+    { title: "Social Chair", seats: 2, candidates: ["Drew", "Emery", "Finley", "Gray"] },
+  ];
+}
+
+// A room in election mode with `fakePositions()` added; returns the positions as the host sees them.
+export async function electionRoom() {
+  const { code, hostKey } = await createRoom();
+  const { client: host } = await joinHost(code, hostKey);
+  host.send({ type: "setMode", mode: "election" });
+  let snapshot = await host.next("snapshot");
+  for (const position of fakePositions()) {
+    host.send({ type: "addPosition", position });
+    snapshot = await host.next("snapshot");
+  }
+  return { code, hostKey, host, positions: snapshot.positions };
 }

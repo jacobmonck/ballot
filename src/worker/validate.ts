@@ -1,9 +1,10 @@
-import type { ClientMessage, PnmInput, QA } from "../shared/protocol";
+import type { ClientMessage, PnmInput, PositionInput, QA } from "../shared/protocol";
 
 // Size limits for everything a client can send.
 const MAX_NAME = 80;
 const MAX_ID = 64;
 const MAX_PNMS = 500;
+const MAX_CANDIDATES = 50;
 const MAX_ANSWERS = 100;
 const MAX_QUESTION = 2_000;
 const MAX_ANSWER = 20_000;
@@ -60,6 +61,26 @@ function parsePnm(value: unknown): PnmInput | null {
 
   if (JSON.stringify(cleanAnswers).length > MAX_ANSWERS_CHARS) return null;
   return { name: cleanName, photoUrl: cleanPhoto, answers: cleanAnswers };
+}
+
+// Seats must leave at least one candidate out, and a name can't appear twice, so a ballot is never a formality.
+function parsePosition(value: unknown): PositionInput | null {
+  if (typeof value !== "object" || value === null) return null;
+
+  const { title, seats, candidates } = value as Record<string, unknown>;
+  const cleanTitle = shortText(title, MAX_NAME);
+  if (cleanTitle === null || !Array.isArray(candidates) || candidates.length > MAX_CANDIDATES) return null;
+
+  const names: string[] = [];
+  for (const candidate of candidates) {
+    const name = shortText(candidate, MAX_NAME);
+    if (name === null) return null;
+    names.push(name);
+  }
+
+  if (new Set(names.map((name) => name.toLowerCase())).size !== names.length) return null;
+  if (!Number.isInteger(seats) || (seats as number) < 1 || (seats as number) > names.length - 1) return null;
+  return { title: cleanTitle, seats: seats as number, candidates: names };
 }
 
 // Each role joins with its own credential: a key for the host and projector, an id and name for a brother.
@@ -134,6 +155,50 @@ export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | n
       return { type: "startRevote" };
     case "revealClass":
       return { type: "revealClass" };
+    case "setMode":
+      return message.mode === "recruitment" || message.mode === "election"
+        ? { type: "setMode", mode: message.mode }
+        : null;
+    case "addPosition": {
+      const position = parsePosition(message.position);
+      return position === null ? null : { type: "addPosition", position };
+    }
+    case "updatePosition": {
+      const positionId = shortText(message.positionId, MAX_ID);
+      const position = parsePosition(message.position);
+      return positionId === null || position === null ? null : { type: "updatePosition", positionId, position };
+    }
+    case "removePosition": {
+      const positionId = shortText(message.positionId, MAX_ID);
+      return positionId === null ? null : { type: "removePosition", positionId };
+    }
+    case "movePosition": {
+      const positionId = shortText(message.positionId, MAX_ID);
+      const { direction } = message;
+      if (positionId === null || (direction !== -1 && direction !== 1)) return null;
+      return { type: "movePosition", positionId, direction };
+    }
+    case "openRound": {
+      const positionId = shortText(message.positionId, MAX_ID);
+      return positionId === null ? null : { type: "openRound", positionId };
+    }
+    case "pick": {
+      const positionId = shortText(message.positionId, MAX_ID);
+      const { candidateIds } = message;
+      if (positionId === null || !Array.isArray(candidateIds) || candidateIds.length > MAX_CANDIDATES) return null;
+      const ids = candidateIds.map((id) => shortText(id, MAX_ID));
+      return ids.every((id) => id !== null) ? { type: "pick", positionId, candidateIds: ids as string[] } : null;
+    }
+    case "closeRound": {
+      const positionId = shortText(message.positionId, MAX_ID);
+      return positionId === null ? null : { type: "closeRound", positionId };
+    }
+    case "revealWinners": {
+      const positionId = shortText(message.positionId, MAX_ID);
+      return positionId === null ? null : { type: "revealWinners", positionId };
+    }
+    case "revealSlate":
+      return { type: "revealSlate" };
     default:
       return null;
   }

@@ -3,7 +3,6 @@ import {
   CLOSE_KICKED,
   type ClassMember,
   type ClientMessage,
-  type ErrorCode,
   type MemberInfo,
   type Phase,
   type Pnm,
@@ -14,6 +13,7 @@ import {
   type Results,
   type Revealed,
   type Role,
+  type RoomMode,
   type ServerMessage,
   type Snapshot,
   type Tally,
@@ -21,6 +21,16 @@ import {
   type VoteValue,
 } from "../shared/protocol";
 import { photoKey } from "./photos";
+import {
+  addPosition,
+  movePosition,
+  positionDetails,
+  positionsFor,
+  removePosition,
+  setMode,
+  updatePosition,
+} from "./positions";
+import { Refusal } from "./refusal";
 import { migrate } from "./schema";
 import { parseClientMessage } from "./validate";
 
@@ -78,6 +88,8 @@ type RoomRow = {
   revote_spots: number | null;
   class_revealed: number;
   join_locked: number;
+  mode: RoomMode;
+  focus_position_id: string | null;
   phase: Phase;
 };
 
@@ -90,16 +102,6 @@ type PnmRow = {
   past_rounds: string;
   answers: string;
 };
-
-// An expected rejection of a client request. Its code and message go straight back to that client.
-class Refusal extends Error {
-  constructor(
-    readonly code: ErrorCode,
-    message: string,
-  ) {
-    super(message);
-  }
-}
 
 // A stored PNM as clients see it.
 function toPnm(row: PnmRow): Pnm {
@@ -367,6 +369,16 @@ export class VotingRoom extends DurableObject<Env> {
         return this.startRevote();
       case "revealClass":
         return this.revealClass();
+      case "setMode":
+        return this.editPositions(() => setMode(this.sql, message.mode));
+      case "addPosition":
+        return this.editPositions(() => addPosition(this.sql, message.position));
+      case "updatePosition":
+        return this.editPositions(() => updatePosition(this.sql, message.positionId, message.position));
+      case "removePosition":
+        return this.editPositions(() => removePosition(this.sql, message.positionId));
+      case "movePosition":
+        return this.editPositions(() => movePosition(this.sql, message.positionId, message.direction));
     }
   }
 
@@ -679,6 +691,12 @@ export class VotingRoom extends DurableObject<Env> {
       .map(({ id, name, photo_url }) => ({ pnmId: id, name, photoUrl: photo_url }));
   }
 
+  // Runs one change to the mode or positions, then sends everyone the new room.
+  private editPositions(change: () => void) {
+    change();
+    this.broadcastSnapshots();
+  }
+
   private roomOrNull(): RoomRow | undefined {
     if (!this.hasTables) return undefined;
     return this.sql.exec<RoomRow>("SELECT * FROM room").toArray()[0];
@@ -815,6 +833,7 @@ export class VotingRoom extends DurableObject<Env> {
       role,
       code: room.code,
       phase: room.phase,
+      mode: room.mode,
       yesBudget: this.voteBudget(),
       budgetIsDefault: room.yes_budget === 0 || room.revote_spots !== null,
       pnmCount: this.pnmCount(),
@@ -828,12 +847,18 @@ export class VotingRoom extends DurableObject<Env> {
       classReveal: role !== "brother" && room.class_revealed ? this.classMembers() : null,
       myVotes,
       yesUsed: memberId === null ? 0 : this.yesUsed(memberId),
+      positions: positionsFor(this.sql, role),
+      focusPositionId: null,
+      positionProgress: null,
+      myPicks: {},
+      slate: null,
       ...(isHost && {
         hostOnly: {
           hostKey: room.host_key,
           projectorKey: room.projector_key,
           tallies: this.tallies(),
           results: room.phase === "ended" ? this.results() : null,
+          positionDetails: positionDetails(this.sql),
         },
       }),
     };

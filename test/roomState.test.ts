@@ -16,6 +16,7 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     role: "brother",
     code: "ABCDEF",
     phase: "live",
+    mode: "recruitment",
     yesBudget: 2,
     budgetIsDefault: false,
     pnmCount: 3,
@@ -29,6 +30,11 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     classReveal: null,
     myVotes: {},
     yesUsed: 0,
+    positions: [],
+    focusPositionId: null,
+    positionProgress: null,
+    myPicks: {},
+    slate: null,
     ...overrides,
   };
 }
@@ -107,7 +113,7 @@ describe("room state", () => {
     const tally: ServerMessage = { type: "tally", pnmId: "a", yes: 2, no: 1 };
     expect(server(joined(), tally).room?.hostOnly).toBeUndefined();
 
-    const hostOnly = { hostKey: "h", projectorKey: "p", tallies: {}, results: null };
+    const hostOnly = { hostKey: "h", projectorKey: "p", tallies: {}, results: null, positionDetails: {} };
     const host = server(joined({ role: "host", hostOnly }), tally);
     expect(host.room?.hostOnly?.tallies).toEqual({ a: { yes: 2, no: 1 } });
   });

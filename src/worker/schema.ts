@@ -92,4 +92,39 @@ export function migrate(sql: SqlStorage) {
       INSERT INTO _sql_schema_migrations (id) VALUES (6);
     `);
   }
+
+  if (version < 7) {
+    sql.exec(`
+      ALTER TABLE room ADD COLUMN mode TEXT NOT NULL DEFAULT 'recruitment';
+      ALTER TABLE room ADD COLUMN focus_position_id TEXT;
+      CREATE TABLE position (
+        id           TEXT PRIMARY KEY,
+        ordinal      INTEGER NOT NULL,
+        title        TEXT NOT NULL,
+        seats        INTEGER NOT NULL,
+        seats_open   INTEGER NOT NULL,
+        status       TEXT NOT NULL DEFAULT 'pending',
+        round        INTEGER NOT NULL DEFAULT 0,
+        revealed     INTEGER NOT NULL DEFAULT 0,
+        past_rounds  TEXT NOT NULL DEFAULT '[]'
+      );
+      CREATE TABLE candidate (
+        id          TEXT PRIMARY KEY,
+        position_id TEXT NOT NULL,
+        ordinal     INTEGER NOT NULL,
+        name        TEXT NOT NULL,
+        on_ballot   INTEGER NOT NULL DEFAULT 1,
+        elected     INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE pick (
+        member_id    TEXT NOT NULL,
+        position_id  TEXT NOT NULL,
+        candidate_id TEXT NOT NULL,
+        updated_at   INTEGER NOT NULL,
+        PRIMARY KEY (member_id, candidate_id)
+      );
+      CREATE INDEX idx_pick_position ON pick(position_id);
+      INSERT INTO _sql_schema_migrations (id) VALUES (7);
+    `);
+  }
 }

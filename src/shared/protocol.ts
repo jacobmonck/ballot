@@ -3,6 +3,9 @@
 export type VoteValue = "yes" | "no";
 export type Phase = "setup" | "live" | "ended";
 export type Role = "brother" | "host" | "projector";
+// What a room is for: voting PNMs in, or electing officers.
+export type RoomMode = "recruitment" | "election";
+export type PositionStatus = "pending" | "voting" | "runoff" | "decided";
 
 // One form question and a PNM's answer to it.
 export interface QA {
@@ -79,6 +82,64 @@ export interface ClassMember {
   photoUrl: string | null;
 }
 
+// A position as the host sets it up.
+export interface PositionInput {
+  title: string;
+  seats: number;
+  candidates: string[];
+}
+
+export interface Candidate {
+  id: string;
+  name: string;
+}
+
+// How a position looks to the socket receiving it.
+export interface Position {
+  id: string;
+  // Place in the running order, starting at 1.
+  ordinal: number;
+  title: string;
+  seats: number;
+  // Seats minus those already filled.
+  seatsOpen: number;
+  status: PositionStatus;
+  // 0 until the position is first opened.
+  round: number;
+  // Brothers and projectors: empty unless the position is voting.
+  ballot: Candidate[];
+  // Brothers and projectors: null until revealed. Hosts: everyone elected so far.
+  winners: Candidate[] | null;
+  revealed: boolean;
+}
+
+// Ballots in one round and how many picks each candidate got.
+export interface RoundTally {
+  ballots: number;
+  picks: Record<string, number>;
+}
+
+// Host only.
+export interface PositionDetail {
+  candidates: Candidate[];
+  rounds: RoundTally[];
+  live: RoundTally;
+}
+
+// How many ballots are in for the position being voted on, out of everyone whose ballot counts.
+export interface PositionProgress {
+  positionId: string;
+  voted: number;
+  total: number;
+}
+
+// One position's line in the slate shown at the end.
+export interface SlateEntry {
+  positionId: string;
+  title: string;
+  winners: string[];
+}
+
 // Everything a client may send. The Worker checks each one in validate.ts before use.
 export type ClientMessage =
   | { type: "join"; as: "brother"; memberId: string; name: string }
@@ -93,7 +154,17 @@ export type ClientMessage =
   | { type: "kick"; handle: string }
   | { type: "endSession" }
   | { type: "startRevote" }
-  | { type: "revealClass" };
+  | { type: "revealClass" }
+  | { type: "setMode"; mode: RoomMode }
+  | { type: "addPosition"; position: PositionInput }
+  | { type: "updatePosition"; positionId: string; position: PositionInput }
+  | { type: "removePosition"; positionId: string }
+  | { type: "movePosition"; positionId: string; direction: -1 | 1 }
+  | { type: "openRound"; positionId: string }
+  | { type: "pick"; positionId: string; candidateIds: string[] }
+  | { type: "closeRound"; positionId: string }
+  | { type: "revealWinners"; positionId: string }
+  | { type: "revealSlate" };
 
 // The whole room as one socket may see it, sent on join and whenever the room changes too much to patch.
 export interface Snapshot {
@@ -101,6 +172,7 @@ export interface Snapshot {
   role: Role;
   code: string;
   phase: Phase;
+  mode: RoomMode;
   yesBudget: number;
   budgetIsDefault: boolean;
   pnmCount: number;
@@ -119,7 +191,20 @@ export interface Snapshot {
   classReveal: ClassMember[] | null;
   myVotes: Record<string, VoteValue>;
   yesUsed: number;
-  hostOnly?: { hostKey: string; projectorKey: string; tallies: Record<string, Tally>; results: Results | null };
+  // Election mode. Brothers and projectors only receive positions the host has opened.
+  positions: Position[];
+  focusPositionId: string | null;
+  positionProgress: PositionProgress | null;
+  myPicks: Record<string, string[]>;
+  // Set once the host shows the slate to the room. Always null for brothers.
+  slate: SlateEntry[] | null;
+  hostOnly?: {
+    hostKey: string;
+    projectorKey: string;
+    tallies: Record<string, Tally>;
+    results: Results | null;
+    positionDetails: Record<string, PositionDetail>;
+  };
 }
 
 // Everything the room sends. A snapshot replaces client state, and the rest patch it.
@@ -135,6 +220,9 @@ export type ServerMessage =
   | ({ type: "revealed" } & Revealed)
   | { type: "classRevealed"; members: ClassMember[] }
   | { type: "myVote"; pnmId: string; value: VoteValue | null; yesUsed: number }
+  | { type: "myPicks"; positionId: string; candidateIds: string[] }
+  | ({ type: "positionTally"; positionId: string } & RoundTally)
+  | ({ type: "positionProgress" } & PositionProgress)
   | { type: "ended"; results?: Results }
   | { type: "error"; code: ErrorCode; message: string };
 
@@ -155,6 +243,9 @@ export type ErrorCode =
   | "tie_unresolved"
   | "not_found"
   | "wrong_phase"
+  | "wrong_mode"
+  | "not_voting"
+  | "bad_ballot"
   | "budget_too_low"
   | "room_full"
   | "room_locked"
