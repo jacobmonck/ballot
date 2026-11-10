@@ -33,7 +33,9 @@ import {
   positionProgress,
   positionsFor,
   removePosition,
+  revealWinners,
   setMode,
+  slate,
   updatePosition,
 } from "./positions";
 import { Refusal } from "./refusal";
@@ -349,6 +351,24 @@ export class VotingRoom extends DurableObject<Env> {
     const self = this.attachment(ws);
     if (!self) throw new Refusal("not_joined", "Join the room first.");
 
+    const pnmOnly = ["importPnms", "vote", "setBudget", "setFocus", "reveal", "startRevote", "revealClass"];
+    const electionOnly = [
+      "pick",
+      "addPosition",
+      "updatePosition",
+      "removePosition",
+      "movePosition",
+      "openRound",
+      "closeRound",
+      "revealWinners",
+      "revealSlate",
+    ];
+    // Each mode has its own messages, and the rest are shared.
+    const { mode } = this.room();
+    if ((mode === "election" ? pnmOnly : electionOnly).includes(message.type)) {
+      throw new Refusal("wrong_mode", `That message is not used in ${mode} mode.`);
+    }
+
     if (message.type === "vote") {
       if (self.memberId === null) throw new Refusal("forbidden", "Only brothers vote.");
       this.vote(self.memberId, message.pnmId, message.value);
@@ -399,6 +419,10 @@ export class VotingRoom extends DurableObject<Env> {
         return this.editPositions(() =>
           this.ctx.storage.transactionSync(() => closeRound(this.sql, message.positionId)),
         );
+      case "revealWinners":
+        return this.editPositions(() => revealWinners(this.sql, message.positionId));
+      case "revealSlate":
+        return this.revealSlate();
     }
   }
 
@@ -671,6 +695,11 @@ export class VotingRoom extends DurableObject<Env> {
     if (this.room().phase === "ended") throw new Refusal("session_ended", "Voting has already ended.");
 
     this.sql.exec("UPDATE room SET phase = 'ended', revote_spots = NULL");
+    if (this.room().mode === "election") {
+      // Open rounds stay open and frozen, so there are no recruitment results to send.
+      this.broadcastSnapshots();
+      return;
+    }
     this.sql.exec("UPDATE pnm SET in_revote = 0");
 
     const results = this.results();
@@ -728,6 +757,14 @@ export class VotingRoom extends DurableObject<Env> {
       .toArray()
       .filter(({ id }) => made.has(id))
       .map(({ id, name, photo_url }) => ({ pnmId: id, name, photoUrl: photo_url }));
+  }
+
+  // Shows the officer slate on the projector once voting has ended.
+  private revealSlate() {
+    if (this.room().phase !== "ended") throw new Refusal("wrong_phase", "End voting before revealing the slate.");
+
+    this.sql.exec("UPDATE room SET class_revealed = 1");
+    this.broadcastSnapshots();
   }
 
   // Runs one change to the mode or positions, then sends everyone the new room.
@@ -892,7 +929,7 @@ export class VotingRoom extends DurableObject<Env> {
         ? positionProgress(this.sql, room.focus_position_id, this.ballotCount())
         : null,
       myPicks: memberId === null ? {} : myPicks(this.sql, memberId),
-      slate: null,
+      slate: role !== "brother" && room.mode === "election" && room.class_revealed ? slate(this.sql) : null,
       ...(isHost && {
         hostOnly: {
           hostKey: room.host_key,

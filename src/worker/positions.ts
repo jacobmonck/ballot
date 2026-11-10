@@ -8,6 +8,7 @@ import type {
   RoomMode,
   Role,
   RoundTally,
+  SlateEntry,
 } from "../shared/protocol";
 import { countRound } from "./election";
 import { Refusal } from "./refusal";
@@ -260,6 +261,10 @@ export function pick(sql: SqlStorage, memberId: string, positionId: string, cand
 
 // Counts the round, records it, elects or drops candidates, and clears the picks.
 export function closeRound(sql: SqlStorage, id: string) {
+  // Picks are frozen once the session ends, so an open round stays open.
+  const { phase } = sql.exec<{ phase: string }>("SELECT phase FROM room").one();
+  if (phase === "ended") throw new Refusal("session_ended", "Voting has ended.");
+
   const row = sql.exec<PositionRow>("SELECT * FROM position WHERE id = ?", id).toArray()[0];
   if (row?.status !== "voting") throw new Refusal("not_voting", "That position is not open for voting.");
 
@@ -287,6 +292,29 @@ export function closeRound(sql: SqlStorage, id: string) {
     id,
   );
   sql.exec("DELETE FROM pick WHERE position_id = ?", id);
+}
+
+// Shows a decided position's winners to brothers and the projector. Still allowed after the session ends.
+export function revealWinners(sql: SqlStorage, id: string) {
+  const row = sql.exec<PositionRow>("SELECT * FROM position WHERE id = ?", id).toArray()[0];
+  if (!row) throw new Refusal("not_found", "No such position.");
+  if (row.status !== "decided") throw new Refusal("wrong_phase", "That position has not been decided.");
+
+  sql.exec("UPDATE position SET revealed = 1 WHERE id = ?", id);
+}
+
+// The officer slate: every decided position in running order, with its winners in candidate order.
+export function slate(sql: SqlStorage): SlateEntry[] {
+  const candidates = candidateRows(sql);
+  return positionRows(sql)
+    .filter(({ status }) => status === "decided")
+    .map((row) => ({
+      positionId: row.id,
+      title: row.title,
+      winners: candidates
+        .filter(({ position_id, elected }) => position_id === row.id && elected === 1)
+        .map(({ name }) => name),
+    }));
 }
 
 // How many ballots are in for a position, out of everyone whose ballot counts.

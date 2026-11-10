@@ -4,6 +4,7 @@ import {
   connect,
   createRoom,
   electionRoom,
+  fakePnms,
   fakePositions,
   joinBrother,
   joinHost,
@@ -175,7 +176,7 @@ describe("election rounds", () => {
   it("refuses opening a round once the session has ended", async () => {
     const room = await roundRoom(1);
     room.host.send({ type: "endSession" });
-    await room.host.next("ended");
+    await room.host.next("snapshot");
     room.host.send({ type: "openRound", positionId: room.position.id });
     expect((await room.host.next("error")).code).toBe("session_ended");
   });
@@ -292,5 +293,82 @@ describe("election rounds", () => {
 
     const { snapshot } = await joinHost(room.code, room.hostKey);
     expect(snapshot.hostOnly!.positionDetails[room.position.id]!.live.ballots).toBe(1);
+  });
+});
+
+describe("election reveal and end", () => {
+  async function decided() {
+    const room = await roundRoom(3);
+    await open(room);
+    await cast(room, [[0], [0], [1]]);
+    await close(room);
+    return room;
+  }
+
+  it("reveals winners to the projector and brothers only on request", async () => {
+    const room = await decided();
+    room.host.send({ type: "revealWinners", positionId: room.position.id });
+    const snapshot = await room.projector.next("snapshot");
+    const position = snapshot.positions.find(({ id }) => id === room.position.id)!;
+    expect(position.winners?.map(({ name }) => name)).toEqual([room.candidates[0]!.name]);
+    expect(position.revealed).toBe(true);
+  });
+
+  it("refuses revealing an undecided position", async () => {
+    const room = await roundRoom(1);
+    await open(room);
+    room.host.send({ type: "revealWinners", positionId: room.position.id });
+    expect((await room.host.next("error")).code).toBe("wrong_phase");
+  });
+
+  it("ends voting with an undecided position left as is", async () => {
+    const room = await roundRoom(1);
+    await open(room);
+    room.host.send({ type: "endSession" });
+    const snapshot = await room.host.next("snapshot");
+    expect(snapshot.phase).toBe("ended");
+    expect(snapshot.positions.find(({ id }) => id === room.position.id)!.status).toBe("voting");
+
+    const brother = room.brothers[0]!.client;
+    brother.send({ type: "pick", positionId: room.position.id, candidateIds: [room.candidates[0]!.id] });
+    expect((await brother.next("error")).code).toBe("session_ended");
+  });
+
+  it("refuses closing a round once the session has ended", async () => {
+    const room = await roundRoom(1);
+    await open(room);
+    room.host.send({ type: "endSession" });
+    await room.host.next("snapshot");
+    room.host.send({ type: "closeRound", positionId: room.position.id });
+    expect((await room.host.next("error")).code).toBe("session_ended");
+  });
+
+  it("shows the slate to host and projector only, decided positions only", async () => {
+    const room = await decided();
+    room.host.send({ type: "revealSlate" });
+    expect((await room.host.next("error")).code).toBe("wrong_phase");
+
+    room.host.send({ type: "endSession" });
+    await room.host.next("snapshot");
+    await room.projector.next("snapshot");
+    await room.brothers[0]!.client.next("snapshot");
+    room.host.send({ type: "revealSlate" });
+    const host = await room.host.next("snapshot");
+    const projector = await room.projector.next("snapshot");
+    const brother = await room.brothers[0]!.client.next("snapshot");
+    const slate = [{ positionId: room.position.id, title: "President", winners: [room.candidates[0]!.name] }];
+    expect(projector.slate).toEqual(slate);
+    expect(host.slate).toEqual(slate);
+    expect(brother.slate).toBeNull();
+  });
+
+  it("refuses PNM messages in an election room and position messages in a recruitment room", async () => {
+    const { host } = await electionRoom();
+    host.send({ type: "importPnms", pnms: fakePnms(1) });
+    expect((await host.next("error")).code).toBe("wrong_mode");
+
+    const recruitment = await seededRoom(1);
+    recruitment.host.send({ type: "addPosition", position: fakePositions()[0]! });
+    expect((await recruitment.host.next("error")).code).toBe("wrong_mode");
   });
 });
