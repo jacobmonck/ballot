@@ -14,7 +14,7 @@
   <img src="docs/previews/projector-drop.png" alt="The projector during a reveal: gold marbles leave a hopper, turn white or black, and bounce down a pegboard into Yes and No bins while the counts climb" width="100%">
 </p>
 
-Ballot runs a fraternity's new-member vote. After the pro/con/pro discussion on each
+Ballot runs a fraternity's new-member vote, and its officer elections too. After the pro/con/pro discussion on each
 candidate (a PNM), the host puts them on screen. Every brother votes on their phone with
 the PNM's photo and form answers in front of them, and the projector shows a gold marble
 for each ballot as it lands. When the host reveals the result, the marbles drop through
@@ -117,6 +117,9 @@ fake brothers who vote on whatever is on screen:
 bun scripts/simulate.mjs ROOMCODE 100
 ```
 
+The simulator also fills election rooms: its brothers pick random candidates on whatever
+position is open.
+
 Before a change lands: `bun run test`, `bun run typecheck`, `bun run lint` and
 `bun run format:check`.
 
@@ -153,6 +156,24 @@ vote again on just the tied PNMs, without the Yes limit, until the tie breaks.
 
 To vote as well as host, use **Open my ballot** on your own phone or in a new tab.
 
+### Elections
+
+Officer elections use the same room and the same phones. Choose **Elections** on the setup
+screen before adding anything. The mode locks once voting starts.
+
+1. Add each position with its number of seats and its candidates.
+2. Choose **Start voting on** a position. Each brother picks up to as many candidates as
+   there are open seats, and the projector shows how many have voted.
+3. Choose **Close round** to see the tallies. Candidates with a majority win seats. If
+   seats are still open, choose **Open runoff**, or **Reveal winners** when the race is
+   decided. Then choose **Open** the next position.
+4. Choose **End voting** when every position is done.
+5. Choose **Reveal slate on projector** to show the elected officers.
+
+A candidate wins with a majority: more than half of the brothers who picked anyone. When
+no one wins outright, the runoff drops the last-place candidate (all of them, if tied) and
+brothers vote again; if that leaves no more candidates than open seats, they are elected.
+
 ### Photos
 
 Google Drive photos are copied into R2 once on import, so phones load them from Ballot
@@ -164,7 +185,7 @@ sharing and choose **Try again**.
 
 - Rooms and all their data, including saved photos, are erased after 30 days without use.
   Download the CSV first.
-- A room holds up to 1,000 brothers and 500 PNMs.
+- A room holds up to 1,000 brothers and 500 PNMs, or 50 positions with 50 candidates each.
 - Each address can start 10 rooms a minute and make 1,200 room requests a minute.
 - One device can send 60 messages every 10 seconds.
 - Anyone with the room code can join under any name. Check the list, then choose **Close

@@ -12,6 +12,7 @@ const COUNT = Number(countArg);
 const WS_URL = `${baseUrl.replace(/^http/, "ws")}/api/rooms/${code.toUpperCase()}/ws`;
 const YES_CHANCE = 0.6;
 const SKIP_CHANCE = 0.08;
+const ELECTION_SKIP_CHANCE = 0.1;
 const MIN_THINK_MS = 2_000;
 const MAX_THINK_MS = 15_000;
 const JOIN_GAP_MS = 25;
@@ -78,7 +79,16 @@ function startBot(index) {
   const name = `${FIRST[index % FIRST.length]} ${LAST[Math.floor(index / FIRST.length) % LAST.length]} ${index + 1}`;
   // Stable ids let a rerun rejoin as the same brothers instead of adding new ones.
   const memberId = `sim-${code.toUpperCase()}-${index}`;
-  const bot = { socket: null, votes: {}, yesUsed: 0, yesBudget: Infinity, joined: false, stopped: false, timer: null };
+  const bot = {
+    socket: null,
+    votes: {},
+    yesUsed: 0,
+    yesBudget: Infinity,
+    joined: false,
+    stopped: false,
+    timer: null,
+    pickKey: null,
+  };
   bots.add(bot);
 
   const planVote = (pnmId) => {
@@ -96,12 +106,45 @@ function startBot(index) {
     }, delay);
   };
 
+  // Elections: pick once per (position, round) while the focused position is voting.
+  const planPick = (snapshot) => {
+    const position = snapshot.positions?.find((p) => p.id === snapshot.focusPositionId);
+    if (!position || position.status !== "voting" || position.ballot.length === 0) return;
+    const key = `${position.id}:${position.round}`;
+    if (bot.pickKey === key) return;
+    bot.pickKey = key;
+    clearTimeout(bot.timer);
+    if (Math.random() < ELECTION_SKIP_CHANCE) {
+      stats.skips++;
+      return;
+    }
+    const delay = MIN_THINK_MS + Math.random() * (MAX_THINK_MS - MIN_THINK_MS);
+    bot.timer = setTimeout(() => {
+      if (bot.socket?.readyState !== WebSocket.OPEN) return;
+      const ids = position.ballot.map((candidate) => candidate.id).sort(() => Math.random() - 0.5);
+      const count = 1 + Math.floor(Math.random() * Math.min(Math.max(position.seatsOpen, 1), ids.length));
+      bot.socket.send(
+        JSON.stringify({
+          type: "pick",
+          positionId: position.id,
+          round: position.round,
+          candidateIds: ids.slice(0, count),
+        }),
+      );
+      stats.votes++;
+    }, delay);
+  };
+
   const onMessage = (message) => {
     switch (message.type) {
       case "snapshot":
         if (!bot.joined) {
           bot.joined = true;
           stats.joined++;
+        }
+        if (message.mode === "election") {
+          planPick(message);
+          break;
         }
         bot.votes = { ...message.myVotes };
         bot.yesUsed = message.yesUsed;
