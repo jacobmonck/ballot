@@ -10,7 +10,7 @@ import type {
   RoundTally,
   SlateEntry,
 } from "../shared/protocol";
-import { countRound } from "./election";
+import { countRound } from "../shared/election";
 import { Refusal } from "./refusal";
 
 const MAX_POSITIONS = 50;

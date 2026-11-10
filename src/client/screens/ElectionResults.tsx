@@ -1,55 +1,7 @@
 import { toCsv } from "../../shared/csv";
-import type { Candidate, Position, PositionDetail, Snapshot } from "../../shared/protocol";
-import { countRound } from "../../worker/election";
+import type { Position, PositionDetail, Snapshot } from "../../shared/protocol";
+import { roundLines } from "../../shared/electionRounds";
 import { formatPercent, pickPercent } from "../percent";
-
-type Result = "Elected" | "Dropped" | "Runoff" | "Undecided";
-
-interface RoundLine {
-  round: number;
-  ballots: number;
-  lines: { candidate: Candidate; picks: number; result: Result }[];
-}
-
-// Each round's picks and what became of every candidate on the ballot. Tallies only hold candidates who got a pick,
-// so who was on each ballot is rebuilt by counting the rounds again, which is how the Worker counted them.
-function roundLines(position: Position, { candidates, rounds, live }: PositionDetail): RoundLine[] {
-  const lines: RoundLine[] = [];
-  let ballot = candidates;
-  let seatsOpen = position.seats;
-
-  rounds.forEach((tally, index) => {
-    const outcome = countRound({
-      seatsOpen,
-      ballots: tally.ballots,
-      candidates: ballot.map(({ id }) => ({ id, picks: tally.picks[id] ?? 0 })),
-    });
-    const elected = new Set(outcome.elected);
-    const next = new Set(outcome.nextBallot);
-
-    lines.push({
-      round: index + 1,
-      ballots: tally.ballots,
-      lines: ballot.map((candidate) => ({
-        candidate,
-        picks: tally.picks[candidate.id] ?? 0,
-        result: elected.has(candidate.id) ? "Elected" : next.has(candidate.id) ? "Runoff" : "Dropped",
-      })),
-    });
-    seatsOpen -= outcome.elected.length;
-    ballot = candidates.filter(({ id }) => next.has(id));
-  });
-
-  // A round still open when voting ended, or one never opened, has no outcome.
-  if (position.status === "voting" || (position.status === "pending" && rounds.length === 0)) {
-    lines.push({
-      round: rounds.length + 1,
-      ballots: live.ballots,
-      lines: ballot.map((candidate) => ({ candidate, picks: live.picks[candidate.id] ?? 0, result: "Undecided" })),
-    });
-  }
-  return lines;
-}
 
 // Saves every round of every position as a CSV, one row per candidate per round.
 function download(code: string, positions: Position[], details: Record<string, PositionDetail>) {

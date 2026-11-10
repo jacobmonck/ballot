@@ -1,4 +1,5 @@
 import type { ClientMessage, Position, Snapshot } from "../../shared/protocol";
+import { roundLines } from "../../shared/electionRounds";
 import { formatPercent, pickPercent } from "../percent";
 import { ProgressBar } from "./ProgressBar";
 
@@ -13,8 +14,8 @@ export function ElectionPanel({ room, send }: { room: Snapshot; send: (message: 
   const { positions } = room;
   const focused = positions.find(({ id }) => id === room.focusPositionId);
   const detail = focused && room.hostOnly?.positionDetails[focused.id];
-  // Between rounds the live tally is empty, so show the round that just closed.
-  const tally = focused?.status === "voting" ? detail?.live : (detail?.rounds.at(-1) ?? detail?.live);
+  // The round being voted on, or between rounds the one that just closed, with everyone who was on its ballot.
+  const shown = focused && detail ? roundLines(focused, detail).at(-1) : undefined;
 
   const ballots = room.positionProgress?.total ?? room.members.length;
   const voted = room.positionProgress?.voted ?? 0;
@@ -47,15 +48,14 @@ export function ElectionPanel({ room, send }: { room: Snapshot; send: (message: 
         </div>
 
         {/* Live picks. Only the host ever sees these. */}
-        {focused && tally && (
+        {shown && (
           <ul className="divide-y divide-hairline rounded-[1.25rem] bg-stage-deep px-4">
-            {focused.ballot.map((candidate) => {
-              const picks = tally.picks[candidate.id] ?? 0;
+            {shown.lines.map(({ candidate, picks }) => {
               return (
                 <li key={candidate.id} className="flex items-center gap-3 py-2.5 tabular-nums">
                   <span className="min-w-0 flex-1 truncate">{candidate.name}</span>
                   <span className="w-10 text-right font-semibold">{picks}</span>
-                  <span className="w-16 text-right text-chalk">{formatPercent(pickPercent(picks, tally.ballots))}</span>
+                  <span className="w-16 text-right text-chalk">{formatPercent(pickPercent(picks, shown.ballots))}</span>
                 </li>
               );
             })}

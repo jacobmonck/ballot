@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countRound, majority } from "../src/worker/election";
+import { countRound, majority } from "../src/shared/election";
 
 describe("majority", () => {
   it("is more than half the ballots", () => {
