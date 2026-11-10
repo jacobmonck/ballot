@@ -5,6 +5,7 @@ import type { ClientMessage, Snapshot, VoteValue } from "../../shared/protocol";
 import { BudgetMeter } from "../components/BudgetMeter";
 import { MemberList } from "../components/MemberList";
 import { PnmCard } from "../components/PnmCard";
+import { PositionBallot } from "../components/PositionBallot";
 import { Sheet } from "../components/Sheet";
 import { CenteredMessage, ConnectionBanner, Notice } from "../components/Status";
 import { VoteButtons } from "../components/VoteButtons";
@@ -34,7 +35,7 @@ export function Brother() {
     () => identity && { type: "join", as: "brother", ...identity },
     [identity],
   );
-  const { room, connection, notice, refusal, pendingVotes, vote } = useRoom(code, join);
+  const { room, connection, notice, refusal, pendingVotes, vote, pendingPicks, pick } = useRoom(code, join);
 
   if (!identity) return <Navigate to={`/?code=${code}`} replace />;
   if (refusal) return <CenteredMessage title="You can't join this room">{refusal}</CenteredMessage>;
@@ -46,7 +47,12 @@ export function Brother() {
       <Notice notice={notice} />
 
       {room.phase === "setup" && <Lobby room={room} />}
-      {room.phase === "live" && <Ballot room={room} pendingVotes={pendingVotes} vote={vote} />}
+      {room.phase === "live" &&
+        (room.mode === "election" ? (
+          <PositionVote room={room} pendingPicks={pendingPicks} pick={pick} />
+        ) : (
+          <Ballot room={room} pendingVotes={pendingVotes} vote={vote} />
+        ))}
       {room.phase === "ended" && (
         <CenteredMessage title="Voting is closed">Your votes are in. The host has the results.</CenteredMessage>
       )}
@@ -59,11 +65,60 @@ function Lobby({ room }: { room: Snapshot }) {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-10">
       <h1 className="type-display">You're in</h1>
-      <p className="mt-2 text-lg text-chalk">Voting starts when the host puts up the first PNM.</p>
+      <p className="mt-2 text-lg text-chalk">
+        {room.mode === "election"
+          ? "Voting starts when the host opens the first position."
+          : "Voting starts when the host puts up the first PNM."}
+      </p>
 
       <h2 className="type-headline mt-8 mb-3">{room.members.length} in the room</h2>
       <MemberList members={room.members} />
     </main>
+  );
+}
+
+// The focused position's ballot while it's voting, a waiting message between positions.
+function PositionVote({
+  room,
+  pendingPicks,
+  pick,
+}: {
+  room: Snapshot;
+  pendingPicks: Record<string, { round: number; candidateIds: string[] }>;
+  pick: (positionId: string, round: number, candidateIds: string[]) => void;
+}) {
+  // True for a moment after the position or round changes, while the ballot ignores taps.
+  const [settling, setSettling] = useState(false);
+
+  const position = room.positions.find(({ id }) => id === room.focusPositionId);
+  const voting = position?.status === "voting";
+  const round = voting ? position.round : 0;
+
+  // A tap aimed at the last ballot must not land on this one.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    setSettling(true);
+
+    const timer = setTimeout(() => setSettling(false), PNM_CHANGE_GUARD_MS);
+    return () => clearTimeout(timer);
+  }, [room.focusPositionId, round]);
+
+  if (!position || !voting) return <CenteredMessage title="Waiting for the next vote" />;
+
+  // Picks still on their way show as cast, but only for this round.
+  const pending = pendingPicks[position.id];
+  const sending = pending?.round === position.round;
+  const picks = sending ? pending.candidateIds : room.myPicks[position.id];
+
+  return (
+    <PositionBallot
+      key={`${position.id}:${position.round}`}
+      position={position}
+      picks={picks}
+      disabled={settling}
+      sending={sending}
+      onPick={(candidateIds) => pick(position.id, position.round, candidateIds)}
+    />
   );
 }
 
