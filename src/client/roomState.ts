@@ -21,7 +21,7 @@ export interface RoomState {
   // Votes tapped but not yet confirmed. They are resent after every snapshot and overwrite safely.
   pendingVotes: Record<string, VoteValue | null>;
   // Election picks tapped but not yet confirmed, resent after every snapshot like votes.
-  pendingPicks: Record<string, string[]>;
+  pendingPicks: Record<string, { round: number; candidateIds: string[] }>;
   snapshotCount: number;
 }
 
@@ -29,7 +29,7 @@ export type Action =
   | { kind: "connection"; connection: Connection }
   | { kind: "refused"; message: string }
   | { kind: "voteTapped"; pnmId: string; value: VoteValue | null }
-  | { kind: "picksTapped"; positionId: string; candidateIds: string[] }
+  | { kind: "picksTapped"; positionId: string; round: number; candidateIds: string[] }
   | { kind: "server"; message: ServerMessage };
 
 // Applies one server patch to the snapshot. Messages that don't change the room return it as is.
@@ -147,14 +147,27 @@ export function reducer(state: RoomState, action: Action): RoomState {
   }
 
   if (action.kind === "picksTapped") {
-    return { ...state, pendingPicks: { ...state.pendingPicks, [action.positionId]: action.candidateIds } };
+    return {
+      ...state,
+      pendingPicks: {
+        ...state.pendingPicks,
+        [action.positionId]: { round: action.round, candidateIds: action.candidateIds },
+      },
+    };
   }
 
   const { message } = action;
 
   // A snapshot replaces the whole room, and counting them tells the hook when to resend pending votes.
+  // Pending picks from a round that has since closed are dropped, so they can't be replayed into the next one.
   if (message.type === "snapshot") {
-    return { ...state, room: message, connection: "open", snapshotCount: state.snapshotCount + 1 };
+    const pendingPicks = Object.fromEntries(
+      Object.entries(state.pendingPicks).filter(([positionId, pending]) => {
+        const position = message.positions.find(({ id }) => id === positionId);
+        return position?.status === "voting" && position.round === pending.round;
+      }),
+    );
+    return { ...state, room: message, connection: "open", pendingPicks, snapshotCount: state.snapshotCount + 1 };
   }
 
   // Errors show as a notice. A rejected vote also drops every pending one, since the server said no.
@@ -174,7 +187,10 @@ export function reducer(state: RoomState, action: Action): RoomState {
   }
 
   // The server confirmed these picks, in whatever order it stored them, so they're no longer pending.
-  if (message.type === "myPicks" && sameIds(state.pendingPicks[message.positionId], message.candidateIds)) {
+  if (
+    message.type === "myPicks" &&
+    sameIds(state.pendingPicks[message.positionId]?.candidateIds, message.candidateIds)
+  ) {
     const { [message.positionId]: _confirmed, ...pendingPicks } = state.pendingPicks;
     return { ...state, pendingPicks, room: state.room && applyToRoom(state.room, message) };
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { initialState, reducer, type RoomState } from "../src/client/roomState";
-import type { Pnm, ServerMessage, Snapshot } from "../src/shared/protocol";
+import type { Pnm, Position, ServerMessage, Snapshot } from "../src/shared/protocol";
 
 const pnm = (id: string, ordinal: number): Pnm => ({
   id,
@@ -119,8 +119,8 @@ describe("room state", () => {
   });
 
   it("confirms pending picks when the server echoes them in any order", () => {
-    const pending = reducer(joined(), { kind: "picksTapped", positionId: "p", candidateIds: ["x", "y"] });
-    expect(pending.pendingPicks).toEqual({ p: ["x", "y"] });
+    const pending = reducer(joined(), { kind: "picksTapped", positionId: "p", round: 1, candidateIds: ["x", "y"] });
+    expect(pending.pendingPicks).toEqual({ p: { round: 1, candidateIds: ["x", "y"] } });
 
     const confirmed = server(pending, { type: "myPicks", positionId: "p", candidateIds: ["y", "x"] });
     expect(confirmed.pendingPicks).toEqual({});
@@ -131,8 +131,33 @@ describe("room state", () => {
   });
 
   it("drops pending picks when the server says the round is closed", () => {
-    const pending = reducer(joined(), { kind: "picksTapped", positionId: "p", candidateIds: ["x"] });
+    const pending = reducer(joined(), { kind: "picksTapped", positionId: "p", round: 1, candidateIds: ["x"] });
     const closed = server(pending, { type: "error", code: "not_voting", message: "Voting is closed." });
+    expect(closed.pendingPicks).toEqual({});
+  });
+
+  it("drops pending picks from an earlier round on snapshot", () => {
+    const position = (round: number, status: Position["status"]): Position => ({
+      id: "p",
+      ordinal: 1,
+      title: "President",
+      seats: 1,
+      seatsOpen: 1,
+      status,
+      round,
+      ballot: [],
+      winners: null,
+      revealed: false,
+    });
+    const pending = reducer(joined(), { kind: "picksTapped", positionId: "p", round: 1, candidateIds: ["x"] });
+
+    const sameRound = server(pending, snapshot({ positions: [position(1, "voting")] }));
+    expect(sameRound.pendingPicks).toEqual({ p: { round: 1, candidateIds: ["x"] } });
+
+    const runoff = server(pending, snapshot({ positions: [position(2, "voting")] }));
+    expect(runoff.pendingPicks).toEqual({});
+
+    const closed = server(pending, snapshot({ positions: [position(1, "runoff")] }));
     expect(closed.pendingPicks).toEqual({});
   });
 

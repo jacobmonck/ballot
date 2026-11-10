@@ -161,7 +161,7 @@ export type ClientMessage =
   | { type: "removePosition"; positionId: string }
   | { type: "movePosition"; positionId: string; direction: -1 | 1 }
   | { type: "openRound"; positionId: string }
-  | { type: "pick"; positionId: string; candidateIds: string[] }
+  | { type: "pick"; positionId: string; round: number; candidateIds: string[] }
   | { type: "closeRound"; positionId: string }
   | { type: "revealWinners"; positionId: string }
   | { type: "revealSlate" };

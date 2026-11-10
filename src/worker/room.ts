@@ -377,7 +377,7 @@ export class VotingRoom extends DurableObject<Env> {
 
     if (message.type === "pick") {
       if (self.memberId === null) throw new Refusal("forbidden", "Only brothers vote.");
-      this.pick(self.memberId, message.positionId, message.candidateIds);
+      this.pick(self.memberId, message.positionId, message.round, message.candidateIds);
       return;
     }
 
@@ -531,8 +531,8 @@ export class VotingRoom extends DurableObject<Env> {
   }
 
   // Stores a member's picks, tells them what was kept, and tells hosts the running count.
-  private pick(memberId: string, positionId: string, candidateIds: string[]) {
-    const stored = this.ctx.storage.transactionSync(() => pick(this.sql, memberId, positionId, candidateIds));
+  private pick(memberId: string, positionId: string, round: number, candidateIds: string[]) {
+    const stored = this.ctx.storage.transactionSync(() => pick(this.sql, memberId, positionId, round, candidateIds));
 
     const mine: ServerMessage = { type: "myPicks", positionId, candidateIds: stored };
     for (const socket of this.ctx.getWebSockets()) {

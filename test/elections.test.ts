@@ -130,6 +130,7 @@ async function cast(room: Room, ballots: number[][]) {
     client.send({
       type: "pick",
       positionId: room.position.id,
+      round: 1,
       candidateIds: indexes.map((index) => room.candidates[index]!.id),
     });
     await client.next("myPicks");
@@ -186,7 +187,7 @@ describe("election rounds", () => {
     await open(room);
     const brother = room.brothers[0]!.client;
     const [alex] = room.candidates;
-    brother.send({ type: "pick", positionId: room.position.id, candidateIds: [alex!.id] });
+    brother.send({ type: "pick", positionId: room.position.id, round: 1, candidateIds: [alex!.id] });
     expect((await brother.next("myPicks")).candidateIds).toEqual([alex!.id]);
 
     const tally = await room.host.next("positionTally");
@@ -202,7 +203,7 @@ describe("election rounds", () => {
     const [alex, blake] = room.candidates;
     const bad = [[alex!.id, blake!.id], [alex!.id, alex!.id], ["not-a-candidate"]];
     for (const candidateIds of bad) {
-      brother.send({ type: "pick", positionId: room.position.id, candidateIds });
+      brother.send({ type: "pick", positionId: room.position.id, round: 1, candidateIds });
       expect((await brother.next("error")).code).toBe("bad_ballot");
     }
   });
@@ -212,7 +213,7 @@ describe("election rounds", () => {
     await open(room);
     await close(room);
     const brother = room.brothers[0]!.client;
-    brother.send({ type: "pick", positionId: room.position.id, candidateIds: [room.candidates[0]!.id] });
+    brother.send({ type: "pick", positionId: room.position.id, round: 1, candidateIds: [room.candidates[0]!.id] });
     expect((await brother.next("error")).code).toBe("not_voting");
   });
 
@@ -250,6 +251,20 @@ describe("election rounds", () => {
     const reopenedPosition = reopened.positions.find(({ id }) => id === room.position.id)!;
     expect(reopenedPosition.round).toBe(2);
     expect(reopened.hostOnly!.positionDetails[room.position.id]!.live.ballots).toBe(0);
+  });
+
+  it("refuses a pick for an earlier round", async () => {
+    const room = await roundRoom(5);
+    await open(room);
+    await cast(room, [[0], [0], [1], [1], [2]]);
+    await close(room);
+    room.host.send({ type: "openRound", positionId: room.position.id });
+    await room.host.next("snapshot");
+    for (const { client } of room.brothers) await client.next("snapshot");
+
+    const brother = room.brothers[0]!.client;
+    brother.send({ type: "pick", positionId: room.position.id, round: 1, candidateIds: [room.candidates[0]!.id] });
+    expect((await brother.next("error")).code).toBe("not_voting");
   });
 
   it("leader wins when the tied last-place candidates drop", async () => {
@@ -330,7 +345,7 @@ describe("election reveal and end", () => {
     expect(snapshot.positions.find(({ id }) => id === room.position.id)!.status).toBe("voting");
 
     const brother = room.brothers[0]!.client;
-    brother.send({ type: "pick", positionId: room.position.id, candidateIds: [room.candidates[0]!.id] });
+    brother.send({ type: "pick", positionId: room.position.id, round: 1, candidateIds: [room.candidates[0]!.id] });
     expect((await brother.next("error")).code).toBe("session_ended");
   });
 

@@ -199,9 +199,9 @@ export function useRoom(code: string, join: ClientMessage | null) {
 
   // Shows picks straight away as pending, then sends them.
   const pick = useCallback(
-    (positionId: string, candidateIds: string[]) => {
-      dispatch({ kind: "picksTapped", positionId, candidateIds });
-      send({ type: "pick", positionId, candidateIds });
+    (positionId: string, round: number, candidateIds: string[]) => {
+      dispatch({ kind: "picksTapped", positionId, round, candidateIds });
+      send({ type: "pick", positionId, round, candidateIds });
     },
     [send],
   );
@@ -209,8 +209,8 @@ export function useRoom(code: string, join: ClientMessage | null) {
   // After every join or rejoin, sends any vote the server hasn't confirmed yet.
   useEffect(() => {
     for (const [pnmId, value] of Object.entries(state.pendingVotes)) send({ type: "vote", pnmId, value });
-    for (const [positionId, candidateIds] of Object.entries(state.pendingPicks)) {
-      send({ type: "pick", positionId, candidateIds });
+    for (const [positionId, { round, candidateIds }] of Object.entries(state.pendingPicks)) {
+      send({ type: "pick", positionId, round, candidateIds });
     }
     // Resend only on a fresh join, not whenever a tap adds to the pending list.
     // oxlint-disable-next-line react-hooks/exhaustive-deps

@@ -225,13 +225,21 @@ export function openRound(sql: SqlStorage, id: string) {
 }
 
 // Replaces a member's picks for the position being voted on, and returns what was stored.
-export function pick(sql: SqlStorage, memberId: string, positionId: string, candidateIds: string[]): string[] {
+export function pick(
+  sql: SqlStorage,
+  memberId: string,
+  positionId: string,
+  round: number,
+  candidateIds: string[],
+): string[] {
   const { mode, phase } = sql.exec<{ mode: RoomMode; phase: string }>("SELECT mode, phase FROM room").one();
   if (mode !== "election") throw new Refusal("wrong_mode", "This room is not in election mode.");
   if (phase === "ended") throw new Refusal("session_ended", "Voting has ended.");
 
   const row = sql.exec<PositionRow>("SELECT * FROM position WHERE id = ?", positionId).toArray()[0];
   if (row?.status !== "voting") throw new Refusal("not_voting", "That position is not open for voting.");
+  // A pick tapped in an earlier round must not land in this one, e.g. when replayed after a reconnect.
+  if (round !== row.round) throw new Refusal("not_voting", "That round has closed.");
 
   const onBallot = new Set(
     sql

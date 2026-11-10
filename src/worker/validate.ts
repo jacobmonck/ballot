@@ -184,10 +184,13 @@ export function parseClientMessage(raw: string | ArrayBuffer): ClientMessage | n
     }
     case "pick": {
       const positionId = shortText(message.positionId, MAX_ID);
-      const { candidateIds } = message;
+      const { candidateIds, round } = message;
+      if (!Number.isInteger(round) || (round as number) < 1) return null;
       if (positionId === null || !Array.isArray(candidateIds) || candidateIds.length > MAX_CANDIDATES) return null;
       const ids = candidateIds.map((id) => shortText(id, MAX_ID));
-      return ids.every((id) => id !== null) ? { type: "pick", positionId, candidateIds: ids as string[] } : null;
+      return ids.every((id) => id !== null)
+        ? { type: "pick", positionId, round: round as number, candidateIds: ids as string[] }
+        : null;
     }
     case "closeRound": {
       const positionId = shortText(message.positionId, MAX_ID);
