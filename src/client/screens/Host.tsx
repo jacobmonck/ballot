@@ -2,15 +2,19 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useParams } from "react-router-dom";
 import type { ClientMessage, Snapshot } from "../../shared/protocol";
+import { ElectionPanel } from "../components/ElectionPanel";
 import { ImportPanel } from "../components/ImportPanel";
 import { MemberList } from "../components/MemberList";
+import { ModePicker } from "../components/ModePicker";
 import { PhotoImport } from "../components/PhotoImport";
 import { PnmPhoto } from "../components/PnmPhoto";
+import { PositionsEditor } from "../components/PositionsEditor";
 import { ProgressBar } from "../components/ProgressBar";
 import { CenteredMessage, ConnectionBanner, Notice } from "../components/Status";
 import { settle } from "../feel";
 import { loadHostKey, saveHostKey } from "../storage";
 import { useRoom } from "../useRoom";
+import { ElectionResults } from "./ElectionResults";
 import { Results } from "./Results";
 
 type Send = (message: ClientMessage) => void;
@@ -45,7 +49,9 @@ export function Host() {
       <ConnectionBanner connection={connection} />
       <Notice notice={notice} />
 
-      {room.phase === "ended" && room.hostOnly.results ? (
+      {room.phase === "ended" && room.mode === "election" ? (
+        <ElectionResults room={room} onRevealSlate={() => send({ type: "revealSlate" })} />
+      ) : room.phase === "ended" && room.hostOnly.results ? (
         <Results
           code={room.code}
           results={room.hostOnly.results}
@@ -106,8 +112,16 @@ function Panel({ room, send }: { room: Snapshot; send: Send }) {
 
       <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_21rem]">
         <div className="min-w-0 space-y-5">
-          {room.hostOnly && <PhotoImport code={room.code} hostKey={room.hostOnly.hostKey} pnms={room.pnms} />}
-          {room.phase === "setup" ? <Setup room={room} send={send} /> : <LiveList room={room} send={send} />}
+          {room.hostOnly && room.mode === "recruitment" && (
+            <PhotoImport code={room.code} hostKey={room.hostOnly.hostKey} pnms={room.pnms} />
+          )}
+          {room.phase === "setup" ? (
+            <Setup room={room} send={send} />
+          ) : room.mode === "election" ? (
+            <ElectionPanel room={room} send={send} />
+          ) : (
+            <LiveList room={room} send={send} />
+          )}
         </div>
 
         <Sidebar room={room} send={send} />
@@ -121,11 +135,17 @@ function RoomHeader({ room, send }: { room: Snapshot; send: Send }) {
   // The key sits in the fragment, so it never reaches a server log or a Referer header.
   const projectorUrl = `${location.origin}/p/${room.code}#${room.hostOnly?.projectorKey}`;
   const focused = room.pnms.find(({ id }) => id === room.focusPnmId);
-  const status = room.revote
-    ? `Revote: ${room.revote.pnmIds.length} tied for ${room.revote.spots} ${room.revote.spots === 1 ? "spot" : "spots"}`
-    : room.phase === "live" && focused
-      ? `Voting on PNM ${focused.ordinal} of ${room.pnmCount}`
-      : "Setting up";
+  const focusedPosition = room.positions.find(({ id }) => id === room.focusPositionId);
+  const status =
+    room.mode === "election"
+      ? room.phase === "live" && focusedPosition
+        ? `Voting on ${focusedPosition.title}, round ${focusedPosition.round}`
+        : "Setting up"
+      : room.revote
+        ? `Revote: ${room.revote.pnmIds.length} tied for ${room.revote.spots} ${room.revote.spots === 1 ? "spot" : "spots"}`
+        : room.phase === "live" && focused
+          ? `Voting on PNM ${focused.ordinal} of ${room.pnmCount}`
+          : "Setting up";
 
   return (
     <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 border-b border-hairline pb-5">
@@ -162,14 +182,39 @@ function RoomHeader({ room, send }: { room: Snapshot; send: Send }) {
   );
 }
 
-// Before voting starts: a summary with a start button once PNMs are in, then the import panel.
+// Before voting starts: a summary with a start button once PNMs or positions are in, then the import panel or positions editor.
 function Setup({ room, send }: { room: Snapshot; send: Send }) {
   const first = room.pnms[0];
+  const firstPosition = room.positions[0];
+  const election = room.mode === "election";
   const brothers = room.members.length;
 
   return (
     <>
-      {first && (
+      {room.pnms.length === 0 && room.positions.length === 0 && (
+        <ModePicker mode={room.mode} onChange={(mode) => send({ type: "setMode", mode })} />
+      )}
+
+      {election && firstPosition && (
+        <section className="panel flex flex-wrap items-center justify-between gap-4 p-5">
+          <div className="min-w-0">
+            <h1 className="type-title">{room.positions.length} positions ready</h1>
+            <p className="mt-1 text-chalk tabular-nums">
+              {brothers} {brothers === 1 ? "brother" : "brothers"} joined.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-lg btn-primary min-w-0"
+            onClick={() => send({ type: "openRound", positionId: firstPosition.id })}
+          >
+            <span className="truncate">Start voting on {firstPosition.title}</span>
+          </button>
+        </section>
+      )}
+
+      {!election && first && (
         <section className="panel flex flex-wrap items-center justify-between gap-4 p-5">
           <div className="min-w-0">
             <h1 className="type-title">{room.pnms.length} PNMs ready</h1>
@@ -189,7 +234,11 @@ function Setup({ room, send }: { room: Snapshot; send: Send }) {
         </section>
       )}
 
-      <ImportPanel pnms={room.pnms} onImport={(pnms) => send({ type: "importPnms", pnms })} />
+      {election ? (
+        <PositionsEditor positions={room.positions} send={send} />
+      ) : (
+        <ImportPanel pnms={room.pnms} onImport={(pnms) => send({ type: "importPnms", pnms })} />
+      )}
     </>
   );
 }
@@ -355,7 +404,7 @@ function Sidebar({ room, send }: { room: Snapshot; send: Send }) {
   return (
     <aside className="space-y-3 lg:sticky lg:top-8 lg:self-start">
       <Members room={room} send={send} />
-      {room.pnmCount > 0 && !room.revote && <BudgetSetting room={room} send={send} />}
+      {room.mode === "recruitment" && room.pnmCount > 0 && !room.revote && <BudgetSetting room={room} send={send} />}
       <HostKey hostKey={room.hostOnly?.hostKey ?? ""} />
     </aside>
   );

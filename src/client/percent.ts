@@ -9,3 +9,8 @@ export function yesPercent({ yes, no }: Tally) {
 export function formatPercent(percent: number) {
   return `${Number(percent.toFixed(1))}%`;
 }
+
+// A candidate's picks as a share of the ballots cast, 0 to 100.
+export function pickPercent(picks: number, ballots: number) {
+  return ballots === 0 ? 0 : (picks / ballots) * 100;
+}
