@@ -13,6 +13,7 @@ import { formatPercent, yesPercent } from "../percent";
 import { watchReveal } from "../revealWatch";
 import { sound } from "../sound";
 import { type Connection, useRoom } from "../useRoom";
+import { ProjectorElection } from "./ProjectorElection";
 
 // Lobby
 const LOBBY_MIN_CAPACITY = 40;
@@ -72,6 +73,8 @@ export function Projector() {
   if (!projectorKey) return <CenteredMessage title="Open the projector view from the host screen" />;
   if (refusal) return <CenteredMessage title={refusal} />;
   if (!room) return <CenteredMessage title="Connecting" />;
+
+  if (room.mode === "election") return <ProjectorElection room={room} connection={connection} />;
 
   if (room.classReveal) return <Finale members={room.classReveal} connection={connection} />;
 
@@ -153,7 +156,7 @@ export function Projector() {
 }
 
 // The backdrop every scene shares: the aurora, a glow that rises as votes come in, and the marble pit.
-function Stage({
+export function Stage({
   scene,
   count,
   capacity,
@@ -478,7 +481,7 @@ function Seat({
 }
 
 // Before voting starts: where to join, the room code, and the newest names to arrive.
-function Lobby({ room }: { room: Snapshot }) {
+export function Lobby({ room }: { room: Snapshot }) {
   const joinHost = useMemo(() => location.host, []);
   const newestFirst = room.members.slice(-LOBBY_NAMES_SHOWN).reverse();
 
