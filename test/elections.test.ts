@@ -290,11 +290,38 @@ describe("election rounds", () => {
     const { host, brother: seen, projector, toBrothers } = await close(room);
     expect(host.status).toBe("runoff");
     expect(host.winners?.map(({ name }) => name)).toEqual(["Drew"]);
-    for (const position of [seen, projector]) {
-      expect(position.seatsOpen).toBe(1);
-      expect(position.winners).toBeNull();
-    }
+    expect(seen.seatsOpen).toBe(1);
+    for (const position of [seen, projector]) expect(position.winners).toBeNull();
     expect(toBrothers).not.toContain("Drew");
+  });
+
+  it("keeps candidates and runoff seats off the projector", async () => {
+    const room = await roundRoom(6, 1);
+    const names = room.candidates.map(({ name }) => name);
+    const sent = () => JSON.stringify(room.projector.received);
+    const plain = (position: { ballot: unknown[]; seatsOpen: number; seats: number }) => {
+      expect(position.ballot).toEqual([]);
+      expect(position.seatsOpen).toBe(position.seats);
+    };
+
+    await open(room);
+    await cast(room, [
+      [0, 1],
+      [0, 2],
+      [0, 1],
+      [0, 3],
+      [0, 2],
+      [0, 3],
+    ]);
+    const { projector } = await close(room);
+    plain(projector);
+    for (const name of names) expect(sent()).not.toContain(name);
+
+    room.host.send({ type: "openRound", positionId: room.position.id });
+    const runoff = (await room.projector.next("snapshot")).positions.find(({ id }) => id === room.position.id)!;
+    expect(runoff.status).toBe("voting");
+    plain(runoff);
+    for (const name of names) expect(sent()).not.toContain(name);
   });
 
   it("counts a kicked member's ballot", async () => {

@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import type { ClientMessage, Position, PositionInput } from "../../shared/protocol";
 
 // The same limits the Worker enforces in validate.ts.
@@ -44,6 +44,10 @@ export function PositionsEditor({
   const [names, setNames] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The positions as they stood when the form was sent. The form is kept until the snapshot differs, so a refused
+  // change doesn't lose what was typed.
+  const [sentFrom, setSentFrom] = useState<string | null>(null);
+  const current = JSON.stringify(positions);
 
   const reset = () => {
     setTitle("");
@@ -51,6 +55,7 @@ export function PositionsEditor({
     setNames("");
     setEditing(null);
     setError(null);
+    setSentFrom(null);
   };
 
   const submit = (event: FormEvent) => {
@@ -63,8 +68,18 @@ export function PositionsEditor({
         ? { type: "updatePosition", positionId: editing, position: parsed.input }
         : { type: "addPosition", position: parsed.input },
     );
-    reset();
+    setSentFrom(current);
   };
+
+  useEffect(() => {
+    if (sentFrom === null || sentFrom === current) return;
+    setTitle("");
+    setSeats("1");
+    setNames("");
+    setEditing(null);
+    setError(null);
+    setSentFrom(null);
+  }, [sentFrom, current]);
 
   const edit = (position: Position) => {
     setTitle(position.title);
@@ -148,7 +163,7 @@ export function PositionsEditor({
                     type="button"
                     className="link type-caption"
                     aria-label={`Move ${position.title} up`}
-                    disabled={index === 0}
+                    disabled={positions[index - 1]?.status !== "pending"}
                     onClick={() => send({ type: "movePosition", positionId: position.id, direction: -1 })}
                   >
                     Up
@@ -157,7 +172,7 @@ export function PositionsEditor({
                     type="button"
                     className="link type-caption"
                     aria-label={`Move ${position.title} down`}
-                    disabled={index === positions.length - 1}
+                    disabled={positions[index + 1]?.status !== "pending"}
                     onClick={() => send({ type: "movePosition", positionId: position.id, direction: 1 })}
                   >
                     Down

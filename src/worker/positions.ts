@@ -131,12 +131,14 @@ export function removePosition(sql: SqlStorage, id: string) {
   sql.exec("UPDATE position SET ordinal = ordinal - 1 WHERE ordinal > ?", ordinal);
 }
 
-// Swaps a position with its neighbour. Moving past either end changes nothing.
+// Swaps a position with its neighbour. Moving past either end, or past a position already opened, changes nothing.
 export function movePosition(sql: SqlStorage, id: string, direction: -1 | 1) {
   requireEditable(sql);
   const { ordinal } = pendingPosition(sql, id);
 
-  const other = sql.exec<{ id: string }>("SELECT id FROM position WHERE ordinal = ?", ordinal + direction).toArray()[0];
+  const other = sql
+    .exec<{ id: string }>("SELECT id FROM position WHERE ordinal = ? AND status = 'pending'", ordinal + direction)
+    .toArray()[0];
   if (!other) return;
 
   sql.exec("UPDATE position SET ordinal = ? WHERE id = ?", ordinal + direction, id);
@@ -146,6 +148,7 @@ export function movePosition(sql: SqlStorage, id: string, direction: -1 | 1) {
 // Positions as one role may see them. Others only get positions the host has opened, and only their winners once revealed.
 export function positionsFor(sql: SqlStorage, role: Role): Position[] {
   const isHost = role === "host";
+  const isProjector = role === "projector";
   const candidates = candidateRows(sql);
 
   return positionRows(sql)
@@ -159,12 +162,16 @@ export function positionsFor(sql: SqlStorage, role: Role): Position[] {
         ordinal: row.ordinal,
         title: row.title,
         seats: row.seats,
-        seatsOpen: row.seats_open,
+        // The projector is on a public screen: no runoff seat counts, which would hint at a partial result.
+        seatsOpen: isProjector ? row.seats : row.seats_open,
         status: row.status,
         round: row.round,
-        // The host always sees who is on the ballot, including a runoff not yet opened. Everyone else only while voting.
+        // The host always sees who is on the ballot, including a runoff not yet opened. Brothers only while voting,
+        // and the projector never.
         ballot:
-          isHost || row.status === "voting" ? mine.filter(({ on_ballot }) => on_ballot === 1).map(toCandidate) : [],
+          isHost || (!isProjector && row.status === "voting")
+            ? mine.filter(({ on_ballot }) => on_ballot === 1).map(toCandidate)
+            : [],
         winners: isHost || row.revealed ? elected : null,
         revealed: row.revealed === 1,
       };

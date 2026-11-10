@@ -125,7 +125,11 @@ function PositionBody({
     return (
       <>
         <Rise>{title}</Rise>
-        <p className="mt-[1.5vw] text-[2.5vw] text-chalk">Pick up to {position.seatsOpen}</p>
+        {position.round === 1 && (
+          <p className="mt-[1.5vw] text-[2.5vw] text-chalk">
+            {position.seats === 1 ? "Pick 1" : `Pick up to ${position.seats}`}
+          </p>
+        )}
         <p className="mt-[2.5vw] flex items-baseline gap-[0.8vw] text-[2.5vw] font-medium tabular-nums">
           <motion.span
             key={voted}

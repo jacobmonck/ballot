@@ -9,6 +9,14 @@ function statusLabel({ status, revealed }: Position) {
   return revealed ? "Revealed" : STATUS_LABELS[status];
 }
 
+function RowAction({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
+  return (
+    <button type="button" className="btn btn-secondary shrink-0" disabled={disabled} onClick={onClick}>
+      {label}
+    </button>
+  );
+}
+
 // While voting in an election: the position on screen with round controls, then every position with its status.
 export function ElectionPanel({ room, send }: { room: Snapshot; send: (message: ClientMessage) => void }) {
   const { positions } = room;
@@ -20,8 +28,7 @@ export function ElectionPanel({ room, send }: { room: Snapshot; send: (message: 
   const ballots = room.positionProgress?.total ?? room.members.length;
   const voted = room.positionProgress?.voted ?? 0;
   const waiting = ballots - voted;
-  // Only one round can be open at a time, so the next position waits for it to close.
-  const nextPending = positions.find(({ status }) => status === "pending");
+  // Only one round can be open at a time, so every other position waits for it to close.
   const open = positions.some(({ status }) => status === "voting");
 
   return (
@@ -92,17 +99,6 @@ export function ElectionPanel({ room, send }: { room: Snapshot; send: (message: 
               Reveal winners
             </button>
           )}
-
-          {nextPending && (
-            <button
-              type="button"
-              className="btn btn-lg btn-secondary min-w-0"
-              disabled={open}
-              onClick={() => send({ type: "openRound", positionId: nextPending.id })}
-            >
-              <span className="truncate">Open {nextPending.title}</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -116,6 +112,27 @@ export function ElectionPanel({ room, send }: { room: Snapshot; send: (message: 
             <span className={`type-caption ${position.id === focused?.id ? "text-brass" : "text-chalk"}`}>
               {statusLabel(position)}
             </span>
+            {position.status === "pending" && (
+              <RowAction
+                label="Open"
+                disabled={open}
+                onClick={() => send({ type: "openRound", positionId: position.id })}
+              />
+            )}
+            {position.status === "runoff" && (
+              <RowAction
+                label="Open runoff"
+                disabled={open}
+                onClick={() => send({ type: "openRound", positionId: position.id })}
+              />
+            )}
+            {position.status === "decided" && !position.revealed && (
+              <RowAction
+                label="Reveal winners"
+                disabled={open}
+                onClick={() => send({ type: "revealWinners", positionId: position.id })}
+              />
+            )}
           </li>
         ))}
       </ol>

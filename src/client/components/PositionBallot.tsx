@@ -76,7 +76,14 @@ export function PositionBallot({ position, picks, disabled, sending, onPick }: P
                   >
                     Change my ballot
                   </button>
-                  <button type="button" className="link type-caption" onClick={() => onPick([])}>
+                  <button
+                    type="button"
+                    className="link type-caption"
+                    onClick={() => {
+                      setSelected([]);
+                      onPick([]);
+                    }}
+                  >
                     Clear my ballot
                   </button>
                 </>
