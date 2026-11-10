@@ -23,8 +23,14 @@ import {
 import { photoKey } from "./photos";
 import {
   addPosition,
+  closeRound,
+  liveTally,
   movePosition,
+  myPicks,
+  openRound,
+  pick,
   positionDetails,
+  positionProgress,
   positionsFor,
   removePosition,
   setMode,
@@ -52,7 +58,9 @@ const MOST_YES_SPENT_SQL = `
 // Kicked members who voted still count, since their votes do.
 const BALLOT_COUNT_SQL = `
   SELECT COUNT(*) AS count FROM member
-  WHERE kicked = 0 OR EXISTS (SELECT 1 FROM vote WHERE vote.member_id = member.id)
+  WHERE kicked = 0
+     OR EXISTS (SELECT 1 FROM vote WHERE vote.member_id = member.id)
+     OR EXISTS (SELECT 1 FROM pick WHERE pick.member_id = member.id)
 `;
 
 const TALLY_SQL = `
@@ -347,6 +355,12 @@ export class VotingRoom extends DurableObject<Env> {
       return;
     }
 
+    if (message.type === "pick") {
+      if (self.memberId === null) throw new Refusal("forbidden", "Only brothers vote.");
+      this.pick(self.memberId, message.positionId, message.candidateIds);
+      return;
+    }
+
     if (self.role !== "host") throw new Refusal("forbidden", "Only the host can do that.");
 
     this.keepAlive();
@@ -379,6 +393,12 @@ export class VotingRoom extends DurableObject<Env> {
         return this.editPositions(() => removePosition(this.sql, message.positionId));
       case "movePosition":
         return this.editPositions(() => movePosition(this.sql, message.positionId, message.direction));
+      case "openRound":
+        return this.editPositions(() => openRound(this.sql, message.positionId));
+      case "closeRound":
+        return this.editPositions(() =>
+          this.ctx.storage.transactionSync(() => closeRound(this.sql, message.positionId)),
+        );
     }
   }
 
@@ -484,6 +504,19 @@ export class VotingRoom extends DurableObject<Env> {
 
     this.queueRoomUpdate(false);
     this.sendToHosts({ type: "tally", pnmId, ...this.tally(pnmId) });
+  }
+
+  // Stores a member's picks, tells them what was kept, and tells hosts the running count.
+  private pick(memberId: string, positionId: string, candidateIds: string[]) {
+    const stored = this.ctx.storage.transactionSync(() => pick(this.sql, memberId, positionId, candidateIds));
+
+    const mine: ServerMessage = { type: "myPicks", positionId, candidateIds: stored };
+    for (const socket of this.ctx.getWebSockets()) {
+      if (this.attachment(socket)?.memberId === memberId) this.send(socket, mine);
+    }
+
+    this.queueRoomUpdate(false);
+    this.sendToHosts({ type: "positionTally", positionId, ...liveTally(this.sql, positionId) });
   }
 
   // Replaces the whole PNM list. Photos saved for the old list are deleted from R2 afterwards.
@@ -625,6 +658,12 @@ export class VotingRoom extends DurableObject<Env> {
     if (this.membersChanged) this.broadcast({ type: "members", members: this.members() });
     this.membersChanged = false;
     if (room.focus_pnm_id) this.broadcast({ type: "progress", ...this.progress(room.focus_pnm_id) });
+    if (room.focus_position_id) {
+      this.broadcast({
+        type: "positionProgress",
+        ...positionProgress(this.sql, room.focus_position_id, this.ballotCount()),
+      });
+    }
   }
 
   // Ends voting for everyone. Only hosts receive the results.
@@ -848,9 +887,11 @@ export class VotingRoom extends DurableObject<Env> {
       myVotes,
       yesUsed: memberId === null ? 0 : this.yesUsed(memberId),
       positions: positionsFor(this.sql, role),
-      focusPositionId: null,
-      positionProgress: null,
-      myPicks: {},
+      focusPositionId: room.focus_position_id,
+      positionProgress: room.focus_position_id
+        ? positionProgress(this.sql, room.focus_position_id, this.ballotCount())
+        : null,
+      myPicks: memberId === null ? {} : myPicks(this.sql, memberId),
       slate: null,
       ...(isHost && {
         hostOnly: {

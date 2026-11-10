@@ -2,12 +2,14 @@ import type {
   Candidate,
   Position,
   PositionDetail,
+  PositionProgress,
   PositionInput,
   PositionStatus,
   RoomMode,
   Role,
   RoundTally,
 } from "../shared/protocol";
+import { countRound } from "./election";
 import { Refusal } from "./refusal";
 
 const MAX_POSITIONS = 50;
@@ -159,7 +161,9 @@ export function positionsFor(sql: SqlStorage, role: Role): Position[] {
         seatsOpen: row.seats_open,
         status: row.status,
         round: row.round,
-        ballot: row.status === "voting" ? mine.filter(({ on_ballot }) => on_ballot === 1).map(toCandidate) : [],
+        // The host always sees who is on the ballot, including a runoff not yet opened. Everyone else only while voting.
+        ballot:
+          isHost || row.status === "voting" ? mine.filter(({ on_ballot }) => on_ballot === 1).map(toCandidate) : [],
         winners: isHost || row.revealed ? elected : null,
         revealed: row.revealed === 1,
       };
@@ -182,7 +186,7 @@ export function positionDetails(sql: SqlStorage): Record<string, PositionDetail>
 }
 
 // Picks so far in the round being voted on, counted per candidate. A ballot is one member with any pick.
-function liveTally(sql: SqlStorage, positionId: string): RoundTally {
+export function liveTally(sql: SqlStorage, positionId: string): RoundTally {
   const picks: Record<string, number> = {};
   const rows = sql.exec<{ candidate_id: string; count: number }>(
     "SELECT candidate_id, COUNT(*) AS count FROM pick WHERE position_id = ? GROUP BY candidate_id",
@@ -197,4 +201,106 @@ function liveTally(sql: SqlStorage, positionId: string): RoundTally {
     )
     .one();
   return { ballots, picks };
+}
+
+// Opens a pending or runoff position for voting, and makes it the focus of the room.
+export function openRound(sql: SqlStorage, id: string) {
+  const { mode, phase } = sql.exec<{ mode: RoomMode; phase: string }>("SELECT mode, phase FROM room").one();
+  if (mode !== "election") throw new Refusal("wrong_mode", "This room is not in election mode.");
+  if (phase === "ended") throw new Refusal("session_ended", "Voting has ended.");
+
+  const row = sql.exec<PositionRow>("SELECT * FROM position WHERE id = ?", id).toArray()[0];
+  if (!row) throw new Refusal("not_found", "No such position.");
+  if (row.status !== "pending" && row.status !== "runoff") {
+    throw new Refusal("wrong_phase", "That position is not waiting for a round.");
+  }
+  const open = sql
+    .exec<{ count: number }>("SELECT COUNT(*) AS count FROM position WHERE status = 'voting'")
+    .one().count;
+  if (open > 0) throw new Refusal("wrong_phase", "Close the open round first.");
+
+  sql.exec("UPDATE position SET status = 'voting', round = round + 1 WHERE id = ?", id);
+  sql.exec("UPDATE room SET focus_position_id = ?, focus_pnm_id = NULL, phase = 'live'", id);
+}
+
+// Replaces a member's picks for the position being voted on, and returns what was stored.
+export function pick(sql: SqlStorage, memberId: string, positionId: string, candidateIds: string[]): string[] {
+  const { mode, phase } = sql.exec<{ mode: RoomMode; phase: string }>("SELECT mode, phase FROM room").one();
+  if (mode !== "election") throw new Refusal("wrong_mode", "This room is not in election mode.");
+  if (phase === "ended") throw new Refusal("session_ended", "Voting has ended.");
+
+  const row = sql.exec<PositionRow>("SELECT * FROM position WHERE id = ?", positionId).toArray()[0];
+  if (row?.status !== "voting") throw new Refusal("not_voting", "That position is not open for voting.");
+
+  const onBallot = new Set(
+    sql
+      .exec<{ id: string }>("SELECT id FROM candidate WHERE position_id = ? AND on_ballot = 1", positionId)
+      .toArray()
+      .map(({ id }) => id),
+  );
+  if (new Set(candidateIds).size !== candidateIds.length) throw new Refusal("bad_ballot", "Pick each candidate once.");
+  if (candidateIds.some((id) => !onBallot.has(id)))
+    throw new Refusal("bad_ballot", "That candidate is not on the ballot.");
+  if (candidateIds.length > row.seats_open) {
+    throw new Refusal("bad_ballot", `Pick at most ${row.seats_open}.`);
+  }
+
+  sql.exec("DELETE FROM pick WHERE member_id = ? AND position_id = ?", memberId, positionId);
+  for (const candidateId of candidateIds) {
+    sql.exec(
+      "INSERT INTO pick (member_id, position_id, candidate_id, updated_at) VALUES (?, ?, ?, ?)",
+      memberId,
+      positionId,
+      candidateId,
+      Date.now(),
+    );
+  }
+  return candidateIds;
+}
+
+// Counts the round, records it, elects or drops candidates, and clears the picks.
+export function closeRound(sql: SqlStorage, id: string) {
+  const row = sql.exec<PositionRow>("SELECT * FROM position WHERE id = ?", id).toArray()[0];
+  if (row?.status !== "voting") throw new Refusal("not_voting", "That position is not open for voting.");
+
+  const tally = liveTally(sql, id);
+  const onBallot = sql
+    .exec<{ id: string }>("SELECT id FROM candidate WHERE position_id = ? AND on_ballot = 1 ORDER BY ordinal", id)
+    .toArray();
+  const outcome = countRound({
+    seatsOpen: row.seats_open,
+    ballots: tally.ballots,
+    candidates: onBallot.map((candidate) => ({ id: candidate.id, picks: tally.picks[candidate.id] ?? 0 })),
+  });
+
+  const rounds = [...(JSON.parse(row.past_rounds) as RoundTally[]), tally];
+  const next = new Set(outcome.nextBallot);
+  for (const candidateId of outcome.elected) sql.exec("UPDATE candidate SET elected = 1 WHERE id = ?", candidateId);
+  for (const { id: candidateId } of onBallot) {
+    if (!next.has(candidateId)) sql.exec("UPDATE candidate SET on_ballot = 0 WHERE id = ?", candidateId);
+  }
+  sql.exec(
+    "UPDATE position SET status = ?, seats_open = ?, past_rounds = ? WHERE id = ?",
+    outcome.decided ? "decided" : "runoff",
+    row.seats_open - outcome.elected.length,
+    JSON.stringify(rounds),
+    id,
+  );
+  sql.exec("DELETE FROM pick WHERE position_id = ?", id);
+}
+
+// How many ballots are in for a position, out of everyone whose ballot counts.
+export function positionProgress(sql: SqlStorage, id: string, total: number): PositionProgress {
+  return { positionId: id, voted: liveTally(sql, id).ballots, total };
+}
+
+// Each member's picks, by position, for restoring their ballot after a reconnect.
+export function myPicks(sql: SqlStorage, memberId: string): Record<string, string[]> {
+  const picks: Record<string, string[]> = {};
+  const rows = sql.exec<{ position_id: string; candidate_id: string }>(
+    "SELECT position_id, candidate_id FROM pick WHERE member_id = ? ORDER BY updated_at, rowid",
+    memberId,
+  );
+  for (const { position_id, candidate_id } of rows) (picks[position_id] ??= []).push(candidate_id);
+  return picks;
 }
